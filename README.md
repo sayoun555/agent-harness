@@ -52,7 +52,13 @@ curl -fsSL https://raw.githubusercontent.com/sayoun555/agent-harness/main/instal
 
 루프가 기능을 구현하기 전에, 설계를 문서로 정하고 사람의 확인을 받는다.
 
-1. **기준**: `design/criteria/` 의 초안. 공통(C1~C5)과 프론트엔드(F1~F5). 기준마다 규칙·이유·적용 조건·확인 방법이 있고, 부딪히면 번호가 작은 쪽이 이긴다. 프로젝트는 자기 기준 파일을 덧붙인다.
+1. **기준**: `design/criteria/` 의 초안. 기준마다 규칙·이유·적용 조건·확인 방법이 있고, 부딪히면 번호가 작은 쪽이 이긴다. 프로젝트는 자기 기준 파일을 덧붙인다.
+
+   | 파일 | 기준 | 쓰는 프리셋 |
+   |---|---|---|
+   | `common.md` | C1~C5: 완성 정의, 되돌리기 어려운 결정은 사람에게, 필요한 만큼만, 검증 가능, 기존 관례 | 전부 |
+   | `frontend.md` | F1~F5: 데이터·표현 분리, 상태 구분, 모든 상태, 디자인 시스템, 접근성·성능 | nextjs |
+   | `backend.md` | B1~B9: 정석, 의존성 방향, 도메인이 규칙을 가짐, 일관성 등급, 브로커는 근거 있을 때만, API 계약, 데이터 접근, 비밀, 모던 Java | spring |
 2. **문서**: `design/templates/design.md` 양식. 완성 정의, 범위 밖, 현재 상태, 설계 결정, 구성 요소, 검증 계획, 기능 분해.
 3. **검사**: `harness design check` 가 빈 절, 사람 결정 대기, 검증 방법이 없는 구성 요소, 잘못된 기능 분해를 잡는다.
 4. **원장**: `harness design import` 는 검사를 통과한 설계만 원장에 넣는다. 기능마다 설계 문서가 붙어서, 구현자와 검증자가 합의된 설계를 따른다.
@@ -109,7 +115,7 @@ curl -fsSL https://raw.githubusercontent.com/sayoun555/agent-harness/main/instal
 ## 테스트
 
 ```bash
-bash tests/run.sh              # 결정론 부품 60개
+bash tests/run.sh              # 결정론 부품 62개
 node tests/workflow-sim.mjs    # 루프 그래프: LLM 만 가짜, 하네스 명령은 실제 실행
 ```
 

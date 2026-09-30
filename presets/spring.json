@@ -70,5 +70,11 @@
       "*flyway*",
       "*liquibase*"
     ]
+  },
+  "design": {
+    "criteria": [
+      "common.md",
+      "backend.md"
+    ]
   }
 }

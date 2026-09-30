@@ -562,6 +562,26 @@ test_review_context_points_to_agreed_design() {
   assert_contains "$(h review --context calc-sub)" "합의된 설계: docs/design/calc.md"
 }
 
+test_spring_design_criteria_are_common_and_backend() {
+  jq '.preset = "spring"' .harness/project.json > p && mv p .harness/project.json
+  local criteria
+  criteria="$(h design criteria)"
+  assert_contains "$criteria" "C1. 완성의 정의부터"
+  assert_contains "$criteria" "B5. 메시지 브로커는 근거가 있을 때만"
+  assert_eq "$(grep -c 'F1\.' <<<"$criteria" || true)" "0" "(Spring 에는 프론트엔드 기준이 없다)"
+}
+
+test_every_criterion_has_rule_reason_condition_and_check() {
+  local file id missing
+  for file in "$ROOT"/design/criteria/*.md; do
+    while IFS= read -r id; do
+      missing="$(awk -v h="$id" 'index($0, h) == 1 { on = 1; next } /^## / { on = 0 } on' "$file" \
+        | grep -c -E '^- \*\*(규칙|이유|적용 조건|확인 방법):\*\*' || true)"
+      [[ "$missing" -ge 4 ]] || fail "$(basename "$file") 의 '$id' 에 규칙·이유·적용 조건·확인 방법 중 빠진 것이 있다 ($missing/4)"
+    done < <(grep -E '^## [A-Z][0-9]+\.' "$file")
+  done
+}
+
 test_design_criteria_follow_preset_and_project() {
   assert_contains "$(h design criteria)" "C1. 완성의 정의부터"
   assert_eq "$(h design criteria | grep -c 'F1\.' || true)" "0" "(generic 에는 프론트엔드 기준이 없다)"
