@@ -2,21 +2,28 @@
 #
 # harness init — 이 프로젝트에 하네스를 끼운다. 여러 번 실행해도 안전하다(있는 파일은 건드리지 않음).
 #
-#   harness init [--preset 이름] [--no-git-hooks] [--ci] [--codex]
+#   harness init [--preset 이름] [--no-plugin] [--no-git-hooks] [--ci] [--codex]
 #
 #   만드는 것
 #     .harness/project.json    프로젝트 설정 (프리셋 + 덮어쓸 값)          ← 커밋
 #     .harness/features.json   기능 원장                                  ← 커밋
 #     .harness/bin/harness     이 머신의 하네스를 가리키는 shim           ← gitignore
+#     .claude/settings.json    이 프로젝트에서만 플러그인을 켠다 (--no-plugin 으로 끔)  ← 커밋
 #     git core.hooksPath       pre-commit·pre-push 게이트 (--no-git-hooks 로 끔)
 #     .github/workflows/harness-gate.yml   CI 백스톱 (--ci)
 #     .codex/hooks.json        Codex 어댑터 (--codex)
 #
 set -euo pipefail
 source "$HARNESS_HOME/lib/common.sh"
+source "$HARNESS_HOME/lib/shim.sh"
 require_commands git jq
 
+readonly PLUGIN_ID="agent-harness@agent-harness"
+readonly MARKETPLACE_NAME="agent-harness"
+readonly MARKETPLACE_REPO="sayoun555/agent-harness"
+
 PRESET=""
+WANT_PLUGIN=1
 WANT_GIT_HOOKS=1
 WANT_CI=0
 WANT_CODEX=0
@@ -25,6 +32,7 @@ parse_args() {
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --preset)       PRESET="${2:-}"; shift ;;
+      --no-plugin)    WANT_PLUGIN=0 ;;
       --no-git-hooks) WANT_GIT_HOOKS=0 ;;
       --ci)           WANT_CI=1 ;;
       --codex)        WANT_CODEX=1 ;;
@@ -71,11 +79,8 @@ create_feature_ledger() {
   write_if_absent "$PROJECT_HARNESS_DIR/features.json" '{"features": []}' ".harness/features.json"
 }
 
-create_shim() {  # 머신마다 하네스 위치가 달라서 shim 은 매번 다시 쓴다
-  local shim="$PROJECT_HARNESS_DIR/bin/harness"
-  mkdir -p "$(dirname "$shim")"
-  printf '#!/usr/bin/env bash\nexec "%s/bin/harness" "$@"\n' "$HARNESS_HOME" > "$shim"
-  chmod +x "$shim"
+create_shim() {
+  ensure_shim || true
   info "✅ .harness/bin/harness → $HARNESS_HOME"
 }
 
@@ -86,6 +91,20 @@ ensure_gitignored() {  # ensure_gitignored <pattern...>
     printf '%s\n' "$pattern" >> "$gitignore"
     info "✅ .gitignore += $pattern"
   done
+}
+
+# 플러그인을 전역이 아니라 이 프로젝트에서만 켠다. 다른 프로젝트에는 스킬도 훅도 로드되지 않는다.
+#   형식은 `claude plugin install --scope project` 가 쓰는 것과 같다. 기존 설정은 보존한다.
+enable_plugin_for_project() {
+  [[ "$WANT_PLUGIN" -eq 1 ]] || return 0
+  local settings="$PROJECT_ROOT/.claude/settings.json"
+  mkdir -p "$(dirname "$settings")"
+  [[ -f "$settings" ]] || echo '{}' > "$settings"
+  json_update "$settings" '
+    .extraKnownMarketplaces[$market] = {source: {source: "github", repo: $repo}}
+    | .enabledPlugins[$plugin] = true' \
+    --arg market "$MARKETPLACE_NAME" --arg repo "$MARKETPLACE_REPO" --arg plugin "$PLUGIN_ID"
+  info "✅ .claude/settings.json — 이 프로젝트에서만 $PLUGIN_ID 활성화"
 }
 
 install_git_hooks() {
@@ -118,8 +137,8 @@ print_next_steps() {
 다음 단계
   1) 해석된 설정 확인:      .harness/bin/harness config
   2) 기능 추가:            .harness/bin/harness feature add --id ID --desc 설명 --acceptance '테스트 명령'
-  3) Claude Code 에서 쓰기: claude --plugin-dir $HARNESS_HOME
-     루프 실행:            /agent-harness:feature-loop
+  3) .harness/ · .claude/settings.json · .gitignore 를 커밋한다 (팀원도 같은 설정을 받는다)
+  4) Claude Code 를 이 프로젝트에서 열고 말로 시킨다: "PLAN.md 보고 기능 목록 만들어 줘", "루프 돌려 줘"
 EOF
 }
 
@@ -132,6 +151,7 @@ main() {
   create_feature_ledger
   create_shim
   ensure_gitignored ".harness/bin/" ".harness/trace.jsonl" "$(jq -r '.state.progressFile' "$DEFAULTS_FILE")"
+  enable_plugin_for_project
   install_git_hooks
   install_ci
   install_codex_adapter

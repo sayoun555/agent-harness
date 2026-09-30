@@ -18,25 +18,33 @@
 | `trace` | 노드마다 한 줄 JSONL. 반복 감지·비용·부품 빼 보기 실험의 원천 | — |
 | `feature-loop` | 위 부품을 잇는 제한 루프 워크플로우 | — |
 
-## 끼우기
+## 설치
+
+쓰려는 프로젝트 폴더에서 한 줄. 다시 실행하면 업데이트다.
 
 ```bash
-cd <프로젝트>
-bash ~/agent-harness/bin/harness init            # 스택 자동 감지 (spring · nextjs · generic)
-.harness/bin/harness config                      # 해석된 설정 확인
-.harness/bin/harness feature add --id sub --desc "빼기" --acceptance "npm test -- sub"
-git add .harness .gitignore && git commit -m "chore: agent-harness"
+curl -fsSL https://raw.githubusercontent.com/sayoun555/agent-harness/main/install.sh | bash
 ```
 
-Claude Code 에서는 플러그인으로 불러온다. 하네스가 끼워지지 않은 저장소에서는 모든 훅이 아무것도 하지 않는다.
+하는 일은 세 가지다.
+1. 하네스를 `~/.agent-harness` 에 받는다.
+2. 이 프로젝트에 끼운다. 스택(spring · nextjs · generic)은 자동 감지하고, 직접 고르려면 `| bash -s -- --preset spring`.
+3. Claude Code 플러그인을 **이 프로젝트에만** 켠다. 다른 프로젝트에는 스킬도 훅도 로드되지 않는다.
 
-```bash
-claude --plugin-dir ~/agent-harness                         # 이번 세션만
-/plugin marketplace add ~/agent-harness                     # 계속 쓰기 (로컬 마켓플레이스)
-/plugin install agent-harness@agent-harness-local
-```
+끝나면 `.harness/`, `.claude/settings.json`, `.gitignore` 를 커밋한다. 팀원이 clone 하면 같은 설정을 받는다.
 
-루프 실행은 Claude Code 안에서 `/agent-harness:feature-loop`.
+## 쓰기: Claude Code 에서 말로
+
+| 이렇게 말하면 | 하네스가 하는 일 |
+|---|---|
+| "PLAN.md 보고 기능 목록 만들어 줘" | 기능과 acceptance 명령을 표로 제안 → 확인하면 원장에 추가하고 원장만 커밋 |
+| "루프 돌려 줘" | 사전 점검 → feature-loop 실행 → 통과·승인 대기·막힘 요약 |
+| "어디까지 됐어", "막힌 거 뭐 있어" | 원장 상태와 막힌 이유 |
+| "결제 기능 승인해 줘" | 위험 파일과 diff 를 보여 주고 승인 |
+| "그거 다시 해 줘" | 원인을 확인한 막힌 기능을 다시 대기열에 |
+
+스킬은 첫 단계에서 `.harness/project.json` 이 있는지 확인하고, 없으면 한 줄만 알리고 끝난다.
+훅은 모델 밖의 셸 스크립트라 하네스가 없는 곳에서는 출력 없이 끝난다(토큰 0).
 
 ## 설정의 층
 
@@ -53,15 +61,16 @@ claude --plugin-dir ~/agent-harness                         # 이번 세션만
 
 ## 다른 도구
 
-- **git 훅**: `init` 이 `core.hooksPath` 를 이 저장소의 `git-hooks/` 로 건다. `--no-git-hooks` 로 끈다.
-- **`--no-verify` 차단**: `export PATH="$HOME/agent-harness/guard/bin:$PATH"`
+- **git 훅**: `init` 이 `core.hooksPath` 를 하네스의 `git-hooks/` 로 건다. 끄려면 `--no-git-hooks`.
+- **`--no-verify` 차단**: `export PATH="$HOME/.agent-harness/guard/bin:$PATH"`
 - **Codex**: `harness init --codex` 가 `.codex/hooks.json` 을 만든다.
 - **CI**: `harness init --ci` 가 워크플로우를 만든다. 저장소 변수 `HARNESS_REPO`·`HARNESS_REF` 로 이 하네스를 버전 고정 참조한다.
+- **명령으로 직접**: `.harness/bin/harness --help`
 
 ## 테스트
 
 ```bash
-bash tests/run.sh              # 결정론 부품 33개
+bash tests/run.sh              # 결정론 부품 39개
 node tests/workflow-sim.mjs    # 루프 그래프: LLM 만 가짜, 하네스 명령은 실제 실행
 ```
 

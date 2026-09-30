@@ -1,5 +1,5 @@
 {
-  "name": "agent-harness-local",
+  "name": "agent-harness",
   "owner": {
     "name": "sayoun555"
   },
@@ -10,5 +10,5 @@
       "description": "범용 에이전트 하네스 (게이트 · 기능 원장 · feature-loop)"
     }
   ],
-  "description": "sayoun555 의 범용 에이전트 하네스 (로컬 마켓플레이스)"
+  "description": "범용 에이전트 하네스 — 결정론 게이트 · 기능 원장 · 제한 루프 그래프"
 }

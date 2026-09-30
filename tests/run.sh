@@ -269,6 +269,48 @@ test_trace_records_each_node() {
   assert_contains "$(h trace summary)" "commit"
 }
 
+# ── init: 프로젝트 단위 플러그인 활성화 ─────────────────────────────
+test_init_enables_plugin_only_for_this_project() {
+  local settings=.claude/settings.json
+  assert_eq "$(jq -r '.enabledPlugins["agent-harness@agent-harness"]' $settings)" "true"
+  assert_eq "$(jq -r '.extraKnownMarketplaces["agent-harness"].source.repo' $settings)" "sayoun555/agent-harness"
+  assert_eq "$(jq -r '.extraKnownMarketplaces["agent-harness"].source.source' $settings)" "github"
+}
+
+test_init_preserves_existing_claude_settings() {
+  echo '{"permissions": {"deny": ["Read(./.env)"]}, "enabledPlugins": {"other@m": true}}' > .claude/settings.json
+  h init --no-git-hooks >/dev/null 2>&1
+  assert_eq "$(jq -r '.permissions.deny[0]' .claude/settings.json)" "Read(./.env)"
+  assert_eq "$(jq -r '.enabledPlugins["other@m"]' .claude/settings.json)" "true"
+  assert_eq "$(jq -r '.enabledPlugins["agent-harness@agent-harness"]' .claude/settings.json)" "true"
+}
+
+test_init_no_plugin_leaves_claude_settings_alone() {
+  rm -rf .claude
+  h init --no-plugin --no-git-hooks >/dev/null 2>&1
+  assert_eq "$(test -e .claude/settings.json && echo exists || echo absent)" "absent"
+}
+
+test_session_hook_recreates_missing_shim() {
+  rm -f .harness/bin/harness
+  CLAUDE_PROJECT_DIR="$PWD" h hook session < /dev/null >/dev/null
+  assert_eq "$(test -x .harness/bin/harness && echo ok)" "ok"
+  assert_eq "$(.harness/bin/harness path home)" "$ROOT"
+}
+
+# 스킬의 0단계 확인 명령과 같은 명령 (SKILL.md 와 문구를 맞춘다)
+skill_guard() { test -f .harness/project.json && test -x .harness/bin/harness && echo plugged || echo absent; }
+
+test_skill_guard_reports_absent_without_harness() {
+  rm -rf .harness
+  assert_eq "$(skill_guard)" "absent"
+}
+
+test_skill_guard_reports_plugged_with_harness() {
+  assert_eq "$(skill_guard)" "plugged"
+  assert_contains "$(cat "$ROOT/skills/harness/SKILL.md")" 'test -f .harness/project.json && test -x .harness/bin/harness && echo plugged || echo absent'
+}
+
 # ── 훅 ──────────────────────────────────────────────────────────────
 hook_input() { jq -cn --arg p "$1" '{tool_input: {file_path: $p}}'; }
 

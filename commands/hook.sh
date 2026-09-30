@@ -13,6 +13,7 @@
 set -euo pipefail
 source "$HARNESS_HOME/lib/common.sh"
 source "$HARNESS_HOME/lib/features.sh"
+source "$HARNESS_HOME/lib/shim.sh"
 
 EVENT="${1:-}"
 HOOK_INPUT="$(cat 2>/dev/null || true)"
@@ -42,6 +43,7 @@ progress_block() {
 
 on_session() {
   local context
+  ensure_shim || true   # 새로 clone 한 저장소에도 스킬이 쓸 shim 을 둔다 (토큰 0, 셸에서 처리)
   context="$(printf '🧭 하네스\n%s\n%s\n' "$(features_summary)" "$(progress_block)")"
   context="$context
 기능 원장은 직접 편집하지 않는다. 추가는 .harness/bin/harness feature add, 통과 판정은 harness 가 한다."
