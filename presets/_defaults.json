@@ -56,5 +56,12 @@
   "approval": {
     "_about": "이 글롭에 걸리는 파일을 바꾼 기능은 자동 커밋하지 않고 사람 승인을 기다린다.",
     "riskGlobs": []
+  },
+  "app": {
+    "startCommand": ""
+  },
+  "mcp": {
+    "_about": "프리셋이 권하는 MCP. 비어 있으면 MCP 확인을 하지 않는다(claude mcp list 호출 안 함).",
+    "recommended": []
   }
 }

@@ -39,12 +39,14 @@ test -f .harness/project.json && test -x .harness/bin/harness && echo plugged ||
    ```bash
    .harness/bin/harness feature preflight
    ```
+   출력에 "MCP … 없음" 이나 "인증 필요" 가 있으면 한 줄로 알리고 루프는 그대로 진행한다.
+   MCP 는 **절대 스스로 설치하지 않는다.** 사용자가 설치하겠다고 하면 그때 출력에 적힌 설치 명령을 실행한다.
 2. 워크플로우 경로를 얻어 Workflow 도구로 실행한다.
    ```bash
    .harness/bin/harness path workflow
    ```
    `Workflow({ scriptPath: "<위 출력>", args: { maxIterations: 20 } })`
-3. 끝나면 결과를 요약한다: 통과, 판단 필요(질문 그대로), 승인 대기, 막힘(이유 포함), 남은 기능.
+3. 끝나면 결과를 요약한다: 통과, 판단 필요(질문 그대로), 승인 대기, 막힘(이유 포함), 남은 기능, MCP 제안.
    판단 필요가 있으면 질문을 먼저 보여 주고 답을 받는다.
 
 ## 3. 상태 ("어디까지 됐어", "막힌 거 뭐 있어")

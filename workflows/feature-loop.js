@@ -114,13 +114,20 @@ function implementPrompt(feature) {
   ].join('\n')
 }
 
+// 사전 점검에서 연결된 MCP 만 검증 지시로 붙인다. 없으면 지시도 없다.
+let runtimeHints = []
+
 function reviewPrompt(feature) {
+  const runtime = runtimeHints.length
+    ? ['', '[런타임 확인 — 연결된 MCP]', ...runtimeHints.map((h) => `- ${h}`)].join('\n')
+    : ''
   return [
     '너는 이 기능을 구현하지 않은 독립 검증자(적대자)다.',
     `먼저 \`${HARNESS} review --context ${feature.id}\` 를 실행해 프로토콜·스택 기준·footgun·diff 를 읽는다.`,
     '필요하면 바뀐 파일을 Read 로 직접 확인한다. 파일을 수정하거나 커밋하지 마라.',
     '컴파일·테스트·acceptance 는 이미 통과했다. 그것들이 못 잡는 의미 위반만 본다.',
     '확신이 없으면 통과(approved=true)다.',
+    runtime,
   ].join('\n')
 }
 
@@ -161,6 +168,11 @@ if (!preflight || !preflight.ok) {
   log('preflight 실패 — 루프를 시작하지 않는다.')
   return { stopReason: 'preflight-failed', problems: preflight ? preflight.problems : ['응답 없음'] }
 }
+const mcp = Array.isArray(preflight.mcp) ? preflight.mcp : []
+runtimeHints = mcp.filter((m) => m.state === 'connected' && m.reviewHint).map((m) => m.reviewHint)
+const mcpSuggestions = mcp.filter((m) => m.state !== 'connected')
+  .map((m) => ({ name: m.name, state: m.state, purpose: m.purpose, install: m.install }))
+if (runtimeHints.length) log(`런타임 검증 MCP 연결됨: ${mcp.filter((m) => m.state === 'connected').map((m) => m.name).join(', ')}`)
 
 currentPhase = 'Loop'
 phase('Loop')
@@ -198,5 +210,6 @@ return {
   interrupted: byStatus('verified').map((f) => f.id),  // 검증 뒤 기록 전에 끊긴 기능 (정상 실행에선 비어 있다)
   pending: byStatus('pending').map((f) => f.id),
   auditRegressions: audit ? audit.regressed : [],
+  mcpSuggestions,                                    // 사람: 설치할지 결정 (하네스는 설치하지 않는다)
   steps,
 }

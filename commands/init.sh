@@ -16,6 +16,7 @@
 set -euo pipefail
 source "$HARNESS_HOME/lib/common.sh"
 source "$HARNESS_HOME/lib/shim.sh"
+source "$HARNESS_HOME/lib/mcp.sh"
 require_commands git jq
 
 readonly PLUGIN_ID="agent-harness@agent-harness"
@@ -131,6 +132,13 @@ install_codex_adapter() {
     "$(sed "s#__HARNESS_HOME__#$HARNESS_HOME#g" "$HARNESS_HOME/adapters/codex/hooks.json")" ".codex/hooks.json"
 }
 
+report_mcp() {  # 권하는 MCP 가 있으면 연결 상태를 알린다. 설치는 하지 않는다.
+  has_mcp_recommendations || return 0
+  info ""
+  info "권하는 MCP (확인만 한다, 설치는 선택):"
+  mcp_status_text "$(mcp_status_json)" | sed 's/^/  /' >&2
+}
+
 print_next_steps() {
   cat >&2 <<EOF
 
@@ -155,6 +163,7 @@ main() {
   install_git_hooks
   install_ci
   install_codex_adapter
+  report_mcp
   print_next_steps
 }
 

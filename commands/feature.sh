@@ -25,6 +25,7 @@ source "$HARNESS_HOME/lib/trace.sh"
 source "$HARNESS_HOME/lib/features.sh"
 source "$HARNESS_HOME/lib/risk.sh"
 source "$HARNESS_HOME/lib/park.sh"
+source "$HARNESS_HOME/lib/mcp.sh"
 require_commands git jq shasum
 project_is_plugged_in || die "$EXIT_CONFIG" "이 프로젝트에 하네스가 없다 (harness init)"
 cd "$PROJECT_ROOT"
@@ -141,9 +142,13 @@ cmd_preflight() {
   [[ ${#problems[@]} -gt 0 ]] && problems_json="$(printf '%s\n' "${problems[@]}" | jq -Rsc 'split("\n") | map(select(length > 0))')"
   local ok=true
   [[ ${#problems[@]} -gt 0 ]] && ok=false
+  # MCP 는 막지 않는다. 연결 상태만 싣는다 (루프가 검증자 지시를 고른다).
+  local mcp_json
+  mcp_json="$(mcp_status_json)"
   emit "$(has_flag --json "$@" && echo 1 || echo 0)" \
-    "$(jq -cn --argjson ok "$ok" --argjson problems "$problems_json" '{ok: $ok, problems: $problems}')" \
-    "$([[ "$ok" == true ]] && echo "✅ preflight 통과" || { echo "⛔ preflight 실패"; printf '   - %s\n' "${problems[@]}"; })"
+    "$(jq -cn --argjson ok "$ok" --argjson problems "$problems_json" --argjson mcp "$mcp_json" '{ok: $ok, problems: $problems, mcp: $mcp}')" \
+    "$([[ "$ok" == true ]] && echo "✅ preflight 통과" || { echo "⛔ preflight 실패"; printf '   - %s\n' "${problems[@]}"; })
+$(mcp_status_text "$mcp_json")"
   [[ "$ok" == true ]]
 }
 

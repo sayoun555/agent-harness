@@ -47,6 +47,22 @@ curl -fsSL https://raw.githubusercontent.com/sayoun555/agent-harness/main/instal
 스킬은 첫 단계에서 `.harness/project.json` 이 있는지 확인하고, 없으면 한 줄만 알리고 끝난다.
 훅은 모델 밖의 셸 스크립트라 하네스가 없는 곳에서는 출력 없이 끝난다(토큰 0).
 
+## MCP
+
+프리셋이 "있으면 검증이 강해지는 MCP" 를 적어 둔다. 지금은 Next.js 프리셋의 Playwright 하나다.
+하네스는 `init` 과 루프 사전 점검에서 연결 여부만 확인하고, **설치하지 않는다.** MCP 는 외부 코드를 실행하고 자격 증명이 필요할 때가 많아서다.
+
+| 상태 | 루프에서 |
+|---|---|
+| 연결됨 | 검증자에게 "그 MCP 로 실제 화면을 확인하라" 는 지시가 붙는다 |
+| 없음·인증 필요 | 지시 없이 그대로 돈다. 요약에 설치 명령이 제안으로 나온다 |
+
+`claude mcp list` 가 서버마다 상태를 점검해 몇 초 걸리므로, 편집할 때마다 부르지 않는다. 권하는 MCP 가 없는 프리셋에서는 아예 부르지 않는다.
+
+```bash
+.harness/bin/harness mcp
+```
+
 ## 설정의 층
 
 `presets/_defaults.json` → `presets/<preset>.json` → `.harness/project.json` 순서로 덮는다. 객체는 깊게 병합, 배열은 교체.
@@ -80,7 +96,7 @@ curl -fsSL https://raw.githubusercontent.com/sayoun555/agent-harness/main/instal
 ## 테스트
 
 ```bash
-bash tests/run.sh              # 결정론 부품 45개
+bash tests/run.sh              # 결정론 부품 51개
 node tests/workflow-sim.mjs    # 루프 그래프: LLM 만 가짜, 하네스 명령은 실제 실행
 ```
 

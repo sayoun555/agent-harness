@@ -389,6 +389,76 @@ test_skill_guard_reports_plugged_with_harness() {
   assert_contains "$(cat "$ROOT/skills/harness/SKILL.md")" 'test -f .harness/project.json && test -x .harness/bin/harness && echo plugged || echo absent'
 }
 
+# ── MCP: 확인만 하고 설치하지 않는다 ────────────────────────────────
+# fake_claude_bin <mcp-list-출력> → 가짜 claude 가 든 디렉터리. 호출되면 그 디렉터리에 .called 를 남긴다.
+fake_claude_bin() {
+  local dir
+  dir="$(mktemp -d)"
+  printf '#!/usr/bin/env bash\ntouch "%s/.called"\n[[ "$1 $2" == "mcp list" ]] && cat <<'"'"'OUT'"'"'\n%s\nOUT\n' "$dir" "$1" > "$dir/claude"
+  chmod +x "$dir/claude"
+  printf '%s\n' "$dir"
+}
+
+recommend_playwright() {
+  jq '. + {app: {startCommand: "npm run dev"}, mcp: {recommended: [{
+        name: "playwright", detect: "(^|:)playwright$", purpose: "화면 확인",
+        install: "claude mcp add playwright -- npx -y @playwright/mcp@latest",
+        reviewHint: "Playwright 로 확인. 먼저 {startCommand}"}]}}' \
+    .harness/project.json > p && mv p .harness/project.json
+  git add -A && git commit -qm "mcp 권장"
+}
+
+mcp_state() { jq -r '.[0].state' <<<"$1"; }
+
+test_mcp_reports_connected() {
+  recommend_playwright
+  local bin out
+  bin="$(fake_claude_bin 'playwright: npx -y @playwright/mcp@latest - ✔ Connected')"
+  out="$(PATH="$bin:$PATH" h mcp --json)"
+  assert_eq "$(mcp_state "$out")" "connected"
+  assert_eq "$(jq -r '.[0].reviewHint' <<<"$out")" "Playwright 로 확인. 먼저 npm run dev" "({startCommand} 치환)"
+}
+
+test_mcp_reports_absent_with_install_hint() {
+  recommend_playwright
+  local bin
+  bin="$(fake_claude_bin 'figma: npx -y figma-developer-mcp --stdio - ✔ Connected')"
+  assert_eq "$(mcp_state "$(PATH="$bin:$PATH" h mcp --json)")" "absent"
+  assert_contains "$(PATH="$bin:$PATH" h mcp)" "설치(선택): claude mcp add playwright"
+}
+
+test_mcp_matches_plugin_namespaced_server() {
+  recommend_playwright
+  local bin
+  bin="$(fake_claude_bin 'plugin:tools:playwright: npx @playwright/mcp - ! Needs authentication')"
+  assert_eq "$(mcp_state "$(PATH="$bin:$PATH" h mcp --json)")" "needs-auth"
+}
+
+test_mcp_unknown_without_claude_cli() {
+  recommend_playwright
+  assert_eq "$(mcp_state "$(PATH="/usr/bin:/bin" h mcp --json)")" "unknown"
+}
+
+test_mcp_not_checked_when_preset_recommends_none() {
+  local bin
+  bin="$(fake_claude_bin 'playwright: x - ✔ Connected')"
+  assert_eq "$(PATH="$bin:$PATH" h mcp --json)" "[]"
+  add_feature a "첫째" 'true'
+  PATH="$bin:$PATH" h feature preflight >/dev/null 2>&1
+  assert_eq "$(test -e "$bin/.called" && echo called || echo skipped)" "skipped" "(느린 claude mcp list 를 부르지 않아야 함)"
+}
+
+test_preflight_carries_mcp_and_never_blocks_on_it() {
+  recommend_playwright
+  add_feature a "첫째" 'true'
+  local bin out
+  bin="$(fake_claude_bin 'nothing: x - ✗ Failed')"
+  out="$(PATH="$bin:$PATH" h feature preflight --json)"
+  assert_eq "$(jq -r .ok <<<"$out")" "true" "(MCP 가 없어도 루프는 시작)"
+  assert_eq "$(jq -r '.mcp[0].state' <<<"$out")" "absent"
+  assert_eq "$(git status --porcelain)" "" "(확인만 하고 아무것도 설치·변경하지 않음)"
+}
+
 # ── 훅 ──────────────────────────────────────────────────────────────
 hook_input() { jq -cn --arg p "$1" '{tool_input: {file_path: $p}}'; }
 

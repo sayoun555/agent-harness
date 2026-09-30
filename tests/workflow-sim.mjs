@@ -25,8 +25,15 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const HARNESS = join(ROOT, 'bin/harness')
 
 // ── 임시 프로젝트 ──────────────────────────────────────────────────
+// 가짜 claude: `claude mcp list` 에 Playwright 가 연결된 것처럼 답한다 (실제 MCP 설정은 건드리지 않음)
+const FAKE_BIN = mkdtempSync(join(tmpdir(), 'fake-claude-'))
+writeFileSync(join(FAKE_BIN, 'claude'),
+  '#!/usr/bin/env bash\n[[ "$1 $2" == "mcp list" ]] && echo "playwright: npx -y @playwright/mcp@latest - ✔ Connected"\n',
+  { mode: 0o755 })
+const ENV = { ...process.env, PATH: `${FAKE_BIN}:${process.env.PATH}` }
+
 function sh(cwd, command) {
-  return spawnSync('bash', ['-c', command], { cwd, encoding: 'utf8' })
+  return spawnSync('bash', ['-c', command], { cwd, encoding: 'utf8', env: ENV })
 }
 
 function makeProject() {
@@ -42,6 +49,10 @@ function makeProject() {
     testGuard: { testCasePattern: '\\btest\\(', assertionPattern: '\\bexpect\\(', skipPattern: '\\btest\\.skip\\(' },
     loop: { maxAttempts: 3, repeatLimit: 2 },
     approval: { riskGlobs: ['*payment*'] },
+    app: { startCommand: 'npm run dev' },
+    mcp: { recommended: [{ name: 'playwright', detect: '(^|:)playwright$', purpose: '화면 확인',
+      install: 'claude mcp add playwright -- npx -y @playwright/mcp@latest',
+      reviewHint: 'Playwright MCP 로 화면을 확인한다. 먼저 {startCommand}' }] },
   })
   writeFileSync(configPath, JSON.stringify(config, null, 2))
   const add = (id, desc, acceptance) => run(`bash ${HARNESS} feature add --id ${id} --desc '${desc}' --acceptance '${acceptance}' 2>/dev/null`)
@@ -57,7 +68,7 @@ function makeProject() {
 
 // ── 가짜 agent(): 시나리오 ─────────────────────────────────────────
 function makeFakeAgent(project) {
-  const calls = { implement: {}, review: {} }
+  const calls = { implement: {}, review: {}, reviewPrompts: [] }
   const bump = (kind, id) => (calls[kind][id] = (calls[kind][id] || 0) + 1)
   const featureIdIn = (prompt) => (prompt.match(/기능 id: ([\w-]+)/) || prompt.match(/--context ([\w-]+)/) || [])[1]
 
@@ -71,7 +82,9 @@ function makeFakeAgent(project) {
   const questions = { cache: "Redis 와 메모리 캐시 중 무엇으로? ('it's' 따옴표 포함)" }
   const review = { div: (n) => n >= 2 }
 
-  return async function agent(prompt, opts = {}) {
+  fakeAgent.calls = calls
+  return fakeAgent
+  async function fakeAgent(prompt, opts = {}) {
     const props = Object.keys((opts.schema && opts.schema.properties) || {})
     if (props.includes('exitCode')) {                       // 결정론 노드: 명령 실제 실행
       const command = prompt.trim().split('\n').pop().replace(/^\.harness\/bin\/harness/, `bash ${HARNESS}`)
@@ -86,6 +99,7 @@ function makeFakeAgent(project) {
       return { needsDecision: false, question: '', summary: `sim ${id}`, filesChanged: [] }
     }
     if (props.includes('approved')) {                       // 검증 노드
+      calls.reviewPrompts.push(prompt)
       const n = bump('review', id)
       const approved = review[id] ? review[id](n) : true
       return { approved, reason: approved ? 'ok' : "과설계 — 'it's' 따옴표도 안전해야 한다" }
@@ -108,8 +122,9 @@ async function loadWorkflow(globals) {
 const project = makeProject()
 try {
   const logs = []
+  const fakeAgent = makeFakeAgent(project)
   const run = await loadWorkflow({
-    agent: makeFakeAgent(project),
+    agent: fakeAgent,
     phase: () => {},
     log: (m) => logs.push(m),
     args: { maxIterations: 20 },
@@ -150,8 +165,17 @@ try {
   // 작은따옴표가 든 LLM 반려 사유가 셸을 거쳐 그대로 기록돼야 한다 (명령 주입 방지 확인)
   assert.equal(trace.find((t) => t.event === 'review').reason, "과설계 — 'it's' 따옴표도 안전해야 한다")
 
+  // 연결된 MCP 는 검증자 지시로 붙고, 설치 제안은 비어야 한다
+  assert.ok(fakeAgent.calls.reviewPrompts.length > 0)
+  for (const p of fakeAgent.calls.reviewPrompts) {
+    assert.match(p, /\[런타임 확인 — 연결된 MCP\]/)
+    assert.match(p, /Playwright MCP 로 화면을 확인한다\. 먼저 npm run dev/)
+  }
+  assert.deepEqual(result.mcpSuggestions, [])
+
   console.log('✓ feature-loop 그래프 시뮬레이션 통과')
   console.log('  ' + nodes.join('\n  '))
 } finally {
   rmSync(project, { recursive: true, force: true })
+  rmSync(FAKE_BIN, { recursive: true, force: true })
 }
