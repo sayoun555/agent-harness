@@ -33,9 +33,12 @@ design_docs_dir() { project_path "$(cfg '.design.docsDir')"; }
 
 # ── 문서 읽기 ───────────────────────────────────────────────────────
 # section_body <doc> <제목> → 주석을 뺀 절 본문
+#   제목 비교에 awk 의 == 를 쓰지 않는다. == 는 로케일 정렬 규칙을 따라서, 한글 정렬이
+#   없는 로케일(CI 의 macOS 등)에서는 서로 다른 한글 제목이 모두 "같다" 로 나온다.
+#   index·length 는 바이트로 비교한다.
 section_body() {
   awk -v want="## $2" '
-    /^## / { inside = ($0 == want); next }
+    /^## / { inside = (index($0, want) == 1 && length($0) == length(want)); next }
     !inside { next }
     /<!--/ { in_comment = 1 }
     in_comment { if (/-->/) in_comment = 0; next }
