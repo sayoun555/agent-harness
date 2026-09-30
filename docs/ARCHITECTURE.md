@@ -23,10 +23,17 @@
 
 ```
 pending ─verify 통과─▶ verified ─commit─▶ passing
-   ▲                     │   └─위험 파일─▶ awaiting-approval ─approve─▶ passing
-   └── 실패(한도 전) ─────┘
-실패가 maxAttempts 에 닿거나 같은 실패가 repeatLimit 번 연속이면 ─▶ blocked ─reset─▶ pending
+   │ ▲                   │   └─위험 파일─▶ awaiting-approval ─approve─▶ passing
+   │ └── 실패(한도 전) ───┘
+   └─구현자가 질문─▶ needs-decision ─decide─▶ pending (결정이 다음 구현에 전달됨)
+실패가 maxAttempts 에 닿거나, 같은 실패가 repeatLimit 번 연속이거나, git 훅이 커밋을 막으면 ─▶ blocked ─reset─▶ pending
 ```
+
+## 보관
+
+blocked · awaiting-approval · needs-decision 으로 떠나는 기능의 변경은 `harness/<id>` 브랜치의 커밋으로 보관하고, 작업 트리를 HEAD 로 되돌린다. 기능 원장의 변경은 보관하지 않고 유지한다.
+이게 없으면 커밋 노드가 작업 트리 전체를 담기 때문에, 승인을 기다리던 결제 코드가 다음 기능의 커밋에 승인 없이 섞인다.
+approve 는 보관 브랜치를 가져와 커밋하고 브랜치를 지운다. reset 은 HEAD 에서 다시 구현하고 보관 브랜치는 참고용으로 남긴다.
 
 같은 실패 판정은 실패 이유와 출력 끝부분에서 숫자를 지운 지문으로 한다. 시간·줄 번호가 달라도 같은 실패로 본다.
 

@@ -9,8 +9,13 @@
 #   verify ID [--json]                    컴파일 → 테스트 약화 감시 → acceptance. 통과 시 verified
 #   reject ID --reason 이유 [--json]       적대자 반려. 실패로 기록
 #   commit ID [--json]                    verified → passing + git 커밋 (위험 파일이면 승인 대기)
-#   approve ID                            사람 승인: awaiting-approval → passing + 커밋
-#   reset ID                              blocked → pending (사람이 원인을 해결한 뒤)
+#   ask ID --question 질문 [--json]        구현자가 판단을 요청: pending → needs-decision
+#   decide ID --answer 답                 사람의 결정을 기능에 붙인다: needs-decision → pending
+#   approve ID                            사람 승인: 보관 브랜치를 가져와 passing + 커밋
+#   reset ID                              blocked·awaiting-approval·needs-decision → pending
+#
+#   통과하지 못하고 떠나는 기능(blocked·awaiting-approval·needs-decision)의 변경은
+#   harness/<ID> 브랜치에 보관하고 작업 트리를 되돌린다. 다음 기능의 커밋에 섞이지 않게 한다.
 #   status [--json]                       상태별 개수
 #   audit [--json]                        passing 기능의 acceptance 재실행 (회귀·원장 조작 감지)
 #
@@ -19,6 +24,7 @@ source "$HARNESS_HOME/lib/common.sh"
 source "$HARNESS_HOME/lib/trace.sh"
 source "$HARNESS_HOME/lib/features.sh"
 source "$HARNESS_HOME/lib/risk.sh"
+source "$HARNESS_HOME/lib/park.sh"
 require_commands git jq shasum
 project_is_plugged_in || die "$EXIT_CONFIG" "이 프로젝트에 하네스가 없다 (harness init)"
 cd "$PROJECT_ROOT"
@@ -59,6 +65,20 @@ result_json() {  # result_json <id> <result> <reason> [detail]
   jq -cn --arg id "$1" --arg result "$2" --arg reason "$3" --arg detail "${4:-}" \
     --arg status "$(feature_field "$1" status)" --argjson attempts "$(feature_field "$1" attempts)" \
     '{id: $id, result: $result, status: $status, attempts: $attempts, reason: $reason, detail: $detail}'
+}
+
+# park_feature <id> <kind> — 기능의 변경을 보관하고 원장에 브랜치를 적는다
+park_feature() {
+  local id="$1" kind="$2" branch
+  branch="$(park_changes "$id" "wip($id): $kind — $(feature_field "$id" description)")"
+  [[ -z "$branch" ]] && return 0
+  set_feature_fields "$id" "$(jq -cn --arg b "$branch" '{parkedBranch: $b}')"
+  trace_add park "$(jq -cn --arg id "$id" --arg kind "$kind" --arg b "$branch" '{feature: $id, kind: $kind, branch: $b}')"
+}
+
+park_if_blocked() {  # park_if_blocked <id> <status>
+  [[ "$2" == "$STATUS_BLOCKED" ]] && park_feature "$1" "blocked"
+  return 0
 }
 
 # ── 조회 ────────────────────────────────────────────────────────────
@@ -166,6 +186,7 @@ cmd_verify() {
 
   reason="$FAILED_STEP 실패"
   status="$(record_failure "$id" "$reason" "$FAILED_DETAIL")"
+  park_if_blocked "$id" "$status"
   trace_add verify "$(jq -cn --arg id "$id" --arg step "$FAILED_STEP" --arg status "$status" \
     '{feature: $id, result: "fail", step: $step, status: $status}')"
   emit "$json_mode" "$(result_json "$id" fail "$reason" "$FAILED_DETAIL")" \
@@ -183,6 +204,7 @@ cmd_reject() {
   require_status "$id" "$STATUS_VERIFIED"
   has_flag --json "$@" && json_mode=1
   status="$(record_failure "$id" "리뷰 반려: $reason" "")"
+  park_if_blocked "$id" "$status"
   trace_add review "$(jq -cn --arg id "$id" --arg status "$status" --arg reason "$reason" \
     '{feature: $id, result: "reject", status: $status, reason: $reason}')"
   emit "$json_mode" "$(result_json "$id" reject "리뷰 반려: $reason")" "↩️ reject $id → $status"
@@ -190,8 +212,8 @@ cmd_reject() {
 
 # ── 커밋 (기록 노드) ─────────────────────────────────────────────────
 # commit_feature <id> <message-suffix> <status-on-failure>
-#   원장을 passing 으로 바꾼 뒤 커밋한다. git 훅이 커밋을 막으면 원장을 되돌린다
-#   (원장은 통과인데 커밋은 없는 어긋난 상태를 남기지 않는다).
+#   원장을 passing 으로 바꾼 뒤 커밋한다. git 훅이 커밋을 막으면 원장 상태를 되돌리고 1 을 반환한다
+#   (원장은 통과인데 커밋은 없는 어긋난 상태를 남기지 않는다). 변경은 작업 트리에 남는다.
 COMMIT_ERROR=""
 commit_feature() {
   local id="$1" suffix="$2" rollback_status="$3" desc acceptance log
@@ -220,16 +242,19 @@ cmd_commit() {
   risky="$(risky_changed_files)"
   if [[ -n "$risky" ]]; then
     set_feature_fields "$id" "$(jq -cn --arg files "$risky" '{status: "awaiting-approval", riskyFiles: ($files | split("\n"))}')"
+    park_feature "$id" "awaiting-approval"
     trace_add commit "$(jq -cn --arg id "$id" '{feature: $id, result: "awaiting-approval"}')"
     emit "$json_mode" "$(result_json "$id" awaiting-approval "위험 파일 변경 — 사람 승인 필요" "$risky")" \
       "🔐 commit $id: 위험 파일 변경 → 승인 대기 (harness feature approve $id)"$'\n'"$risky"
     return 0
   fi
 
-  if ! commit_feature "$id" "" "$STATUS_VERIFIED"; then
+  if ! commit_feature "$id" "" "$STATUS_BLOCKED"; then
+    set_feature_fields "$id" "$(jq -cn --arg d "$COMMIT_ERROR" '{lastFailure: "git 커밋 실패 (훅 차단 등)", lastFailureDetail: $d}')"
+    park_feature "$id" "commit-failed"
     trace_add commit "$(jq -cn --arg id "$id" '{feature: $id, result: "commit-failed"}')"
     emit "$json_mode" "$(result_json "$id" commit-failed "git 커밋 실패 (훅 차단 등)" "$COMMIT_ERROR")" \
-      "⛔ commit $id: git 커밋 실패 — 상태를 verified 로 되돌림"$'\n'"$COMMIT_ERROR"
+      "⛔ commit $id: git 커밋 실패 → blocked (변경은 $(parked_branch "$id") 에 보관)"$'\n'"$COMMIT_ERROR"
     return "$EXIT_GATE_FAILED"
   fi
   trace_add commit "$(jq -cn --arg id "$id" --arg sha "$(git rev-parse --short HEAD)" '{feature: $id, result: "passing", commit: $sha}')"
@@ -241,8 +266,17 @@ cmd_approve() {
   [[ -n "$id" ]] || die "$EXIT_USAGE" "사용: feature approve ID"
   require_features_file; require_feature "$id"
   require_status "$id" "$STATUS_AWAITING"
-  commit_feature "$id" " (사람 승인)" "$STATUS_AWAITING" \
-    || die "$EXIT_GATE_FAILED" "git 커밋 실패 — 상태를 awaiting-approval 로 되돌림"$'\n'"$COMMIT_ERROR"
+  has_changes_outside_ledger && die "$EXIT_USAGE" "작업 트리가 깨끗하지 않다 — 승인 전에 커밋하거나 stash 한다"
+  local branch
+  branch="$(feature_field "$id" parkedBranch)"
+  if [[ -n "$branch" ]] && ! unpark_changes "$branch"; then
+    die "$EXIT_GATE_FAILED" "보관 브랜치 $branch 를 현재 HEAD 에 적용하다 충돌했다. 직접 병합하거나 reset 후 다시 구현한다."$'\n'"$UNPARK_ERROR"
+  fi
+  if ! commit_feature "$id" " (사람 승인)" "$STATUS_AWAITING"; then
+    restore_clean_tree_keeping_ledger
+    die "$EXIT_GATE_FAILED" "git 커밋 실패 — awaiting-approval 유지, 변경은 $branch 에 그대로 있다"$'\n'"$COMMIT_ERROR"
+  fi
+  [[ -n "$branch" ]] && git branch -D -q "$branch"
   trace_add approve "$(jq -cn --arg id "$id" --arg sha "$(git rev-parse --short HEAD)" '{feature: $id, result: "passing", commit: $sha}')"
   echo "✅ approve $id → passing ($(git rev-parse --short HEAD))"
 }
@@ -251,10 +285,44 @@ cmd_reset() {
   local id="${1:-}"
   [[ -n "$id" ]] || die "$EXIT_USAGE" "사용: feature reset ID"
   require_features_file; require_feature "$id"
-  require_status "$id" "$STATUS_BLOCKED" "$STATUS_AWAITING"
-  set_feature_fields "$id" '{"status":"pending","attempts":0,"repeats":0,"lastFailure":"","lastFailureDetail":"","lastFailureFingerprint":""}'
+  require_status "$id" "$STATUS_BLOCKED" "$STATUS_AWAITING" "$STATUS_NEEDS_DECISION"
+  local branch
+  branch="$(feature_field "$id" parkedBranch)"
+  set_feature_fields "$id" '{"status":"pending","attempts":0,"repeats":0,"lastFailure":"","lastFailureDetail":"","lastFailureFingerprint":"","parkedBranch":null}'
   trace_add reset "$(jq -cn --arg id "$id" '{feature: $id}')"
-  echo "🔄 reset $id → pending"
+  echo "🔄 reset $id → pending (HEAD 에서 다시 구현한다)"
+  [[ -n "$branch" ]] && echo "   이전 시도는 $branch 브랜치에 남아 있다. 필요 없으면: git branch -D $branch"
+  return 0
+}
+
+# ── 판단 요청 (구현자 → 사람) ─────────────────────────────────────────
+cmd_ask() {
+  local id="${1:-}"; shift || true
+  local question json_mode=0
+  question="$(flag_value --question "$@")"
+  [[ -n "$id" && -n "$question" ]] || die "$EXIT_USAGE" "사용: feature ask ID --question 질문"
+  require_features_file; require_feature "$id"
+  require_status "$id" "$STATUS_PENDING"
+  has_flag --json "$@" && json_mode=1
+  set_feature_fields "$id" "$(jq -cn --arg q "$question" '{status: "needs-decision", question: $q}')"
+  park_feature "$id" "needs-decision"
+  trace_add ask "$(jq -cn --arg id "$id" --arg q "$question" '{feature: $id, result: "needs-decision", question: $q}')"
+  emit "$json_mode" "$(result_json "$id" needs-decision "$question")" "❓ ask $id → needs-decision: $question"
+}
+
+cmd_decide() {
+  local id="${1:-}"; shift || true
+  local answer question prior
+  answer="$(flag_value --answer "$@")"
+  [[ -n "$id" && -n "$answer" ]] || die "$EXIT_USAGE" "사용: feature decide ID --answer 답"
+  require_features_file; require_feature "$id"
+  require_status "$id" "$STATUS_NEEDS_DECISION"
+  question="$(feature_field "$id" question)"
+  prior="$(jq -c --arg id "$id" '.features[] | select(.id == $id) | .decisions // []' "$(features_file)")"
+  set_feature_fields "$id" "$(jq -cn --argjson prior "$prior" --arg q "$question" --arg a "$answer" \
+    '{status: "pending", question: null, decisions: ($prior + [{question: $q, answer: $a}])}')"
+  trace_add decide "$(jq -cn --arg id "$id" --arg a "$answer" '{feature: $id, answer: $a}')"
+  echo "✅ decide $id → pending (결정이 다음 구현에 전달된다)"
 }
 
 # ── 감사: passing 이 여전히 참인가 ────────────────────────────────────
@@ -288,10 +356,12 @@ main() {
     verify)    cmd_verify "$@" ;;
     reject)    cmd_reject "$@" ;;
     commit)    cmd_commit "$@" ;;
+    ask)       cmd_ask "$@" ;;
+    decide)    cmd_decide "$@" ;;
     approve)   cmd_approve "$@" ;;
     reset)     cmd_reset "$@" ;;
     audit)     cmd_audit "$@" ;;
-    *)         die "$EXIT_USAGE" "사용: harness feature <list|next|add|preflight|verify|reject|commit|approve|reset|status|audit>" ;;
+    *)         die "$EXIT_USAGE" "사용: harness feature <list|next|add|preflight|verify|reject|commit|ask|decide|approve|reset|status|audit>" ;;
   esac
 }
 

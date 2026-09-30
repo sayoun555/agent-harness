@@ -7,8 +7,10 @@
 //
 //   sub  1차 구현 누락 → 게이트 실패 → 2차에 구현 → 통과 → passing
 //   div  구현 → 검증자 1차 반려 → 재구현 → 승인 → passing
-//   pay  위험 파일(payment) → 커밋 대신 awaiting-approval
-//   mul  acceptance 가 늘 실패 → 같은 실패 2회 → blocked
+//   pay   위험 파일(payment) → 커밋 대신 awaiting-approval, 변경은 harness/pay 에 보관
+//   tail  pay 다음에 통과 → 그 커밋에 결제 코드가 섞이면 안 된다
+//   cache 구현자가 설계 결정을 물음 → needs-decision
+//   mul   acceptance 가 늘 실패 → 같은 실패 2회 → blocked
 
 import { execFileSync, spawnSync } from 'node:child_process'
 import { mkdtempSync, readFileSync, writeFileSync, appendFileSync, rmSync } from 'node:fs'
@@ -16,6 +18,8 @@ import { tmpdir } from 'node:os'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import assert from 'node:assert/strict'
+
+const questions_cache = "Redis 와 메모리 캐시 중 무엇으로? ('it's' 따옴표 포함)"
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const HARNESS = join(ROOT, 'bin/harness')
@@ -44,6 +48,8 @@ function makeProject() {
   add('sub', '빼기', 'grep -q "const sub" src/math.js')
   add('div', '나누기', 'test -f src/div.js')
   add('pay', '결제', 'test -f src/payment.js')
+  add('tail', '꼬리', 'test -f src/tail.js')
+  add('cache', '캐싱', 'true')
   add('mul', '곱하기', 'false')
   run('git add -A && git commit -qm init')
   return dir
@@ -59,8 +65,10 @@ function makeFakeAgent(project) {
     sub: (n) => { if (n >= 2) appendFileSync(join(project, 'src/math.js'), 'export const sub = (a, b) => a - b;\n') },
     div: () => writeFileSync(join(project, 'src/div.js'), 'export const div = (a, b) => a / b;\n'),
     pay: () => writeFileSync(join(project, 'src/payment.js'), 'export const pay = () => true;\n'),
+    tail: () => writeFileSync(join(project, 'src/tail.js'), 'export const tail = 1;\n'),
     mul: () => {},
   }
+  const questions = { cache: "Redis 와 메모리 캐시 중 무엇으로? ('it's' 따옴표 포함)" }
   const review = { div: (n) => n >= 2 }
 
   return async function agent(prompt, opts = {}) {
@@ -72,8 +80,10 @@ function makeFakeAgent(project) {
     }
     const id = featureIdIn(prompt)
     if (props.includes('filesChanged')) {                   // 구현 노드
-      implement[id](bump('implement', id))
-      return { summary: `sim ${id}`, filesChanged: [] }
+      bump('implement', id)
+      if (questions[id]) return { needsDecision: true, question: questions[id], summary: '', filesChanged: [] }
+      implement[id](calls.implement[id])
+      return { needsDecision: false, question: '', summary: `sim ${id}`, filesChanged: [] }
     }
     if (props.includes('approved')) {                       // 검증 노드
       const n = bump('review', id)
@@ -108,9 +118,11 @@ try {
   const result = await run()
 
   assert.equal(result.stopReason, 'all-done')
-  assert.deepEqual(result.passing.sort(), ['div', 'sub'])
+  assert.deepEqual(result.passing.sort(), ['div', 'sub', 'tail'])
   assert.deepEqual(result.awaitingApproval.map((f) => f.id), ['pay'])
   assert.deepEqual(result.blocked.map((f) => f.id), ['mul'])
+  assert.deepEqual(result.needsDecision, [{ id: 'cache', question: questions_cache }])
+  assert.deepEqual(result.interrupted, [])
   assert.deepEqual(result.auditRegressions, [])
 
   const nodes = result.steps.map((s) => `${s.feature}:${s.node}:${s.result}`)
@@ -120,14 +132,21 @@ try {
     'div:review:pending',            // 검증자 반려
     'div:record:passing',            // 반려 사유를 받고 통과
     'pay:record:awaiting-approval',  // 위험 파일 → 사람 승인
+    'tail:record:passing',           // 보관 덕분에 결제 코드 없이 커밋
+    'cache:implement:needs-decision',// 추측 대신 질문
     'mul:gate:pending',
     'mul:gate:blocked',              // 같은 실패 2회 → 막힘
   ])
 
   const commits = execFileSync('git', ['log', '--format=%s'], { cwd: project, encoding: 'utf8' }).trim().split('\n')
-  assert.deepEqual(commits, ['feat(div): 나누기', 'feat(sub): 빼기', 'init'])
+  assert.deepEqual(commits, ['feat(tail): 꼬리', 'feat(div): 나누기', 'feat(sub): 빼기', 'init'])
+  const tailFiles = execFileSync('git', ['show', '--name-only', '--format=', 'HEAD'], { cwd: project, encoding: 'utf8' })
+  assert.ok(!tailFiles.includes('payment'), `꼬리 커밋에 결제 코드가 섞였다:\n${tailFiles}`)
+  const parked = execFileSync('git', ['show', 'harness/pay:src/payment.js'], { cwd: project, encoding: 'utf8' })
+  assert.match(parked, /export const pay/)
   const trace = readFileSync(join(project, '.harness/trace.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l))
-  assert.equal(trace.filter((t) => t.event === 'verify').length, 7)
+  assert.equal(trace.filter((t) => t.event === 'verify').length, 8)
+  assert.equal(trace.find((t) => t.event === 'ask').question, questions_cache)
   // 작은따옴표가 든 LLM 반려 사유가 셸을 거쳐 그대로 기록돼야 한다 (명령 주입 방지 확인)
   assert.equal(trace.find((t) => t.event === 'review').reason, "과설계 — 'it's' 따옴표도 안전해야 한다")
 

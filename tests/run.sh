@@ -44,13 +44,15 @@ status_of() { jq -r --arg id "$1" '.features[] | select(.id == $id) | .status' .
 field_of() { jq -r --arg id "$1" --arg f "$2" '.features[] | select(.id == $id) | .[$f]' .harness/features.json; }
 
 # ── 단언 ────────────────────────────────────────────────────────────
-fail() { printf '    ✗ %s\n' "$*"; return 1; }
+# 단언 실패는 플래그로 기록한다. set -e 에 기대지 않는다
+# (if 조건 안에서 실행되면 bash 가 set -e 를 끄므로 중간 단언이 무시된다).
+CURRENT_TEST_FAILED=0
+fail() { printf '    ✗ %s\n' "$*"; CURRENT_TEST_FAILED=1; return 0; }
 assert_eq() { [[ "$1" == "$2" ]] || fail "기대 '$2', 실제 '$1' ${3:-}"; }
 assert_contains() { [[ "$1" == *"$2"* ]] || fail "'$2' 가 없다: ${1:0:300}"; }
 assert_exit() {  # assert_exit <expected> <command...>
-  local expected="$1"; shift
-  "$@" >/dev/null 2>&1
-  local actual=$?
+  local expected="$1" actual=0; shift
+  "$@" >/dev/null 2>&1 || actual=$?
   [[ "$actual" == "$expected" ]] || fail "종료 코드 기대 $expected, 실제 $actual: $*"
 }
 
@@ -60,7 +62,9 @@ run_test() {  # run_test <name>
   dir="$(pwd)"
   make_project
   local project="$PWD"
-  if ( set -e; "$name" ); then
+  CURRENT_TEST_FAILED=0
+  "$name"
+  if [[ "$CURRENT_TEST_FAILED" -eq 0 ]]; then
     PASSED=$((PASSED + 1)); printf '  ✓ %s\n' "$name"
   else
     FAILED=$((FAILED + 1)); FAILED_NAMES+=("$name"); printf '  ✗ %s\n' "$name"
@@ -221,8 +225,82 @@ test_feature_commit_rolls_back_when_git_hook_blocks() {
   echo '// TODO: 임시' >> src/math.js     # verify 는 통과하지만 pre-commit 이 막는다
   h feature verify sub >/dev/null 2>&1
   assert_exit 1 h feature commit sub
-  assert_eq "$(status_of sub)" "verified" "(원장이 되돌아가야 함)"
+  assert_eq "$(status_of sub)" "blocked" "(커밋 실패는 사람이 볼 수 있게 막힘으로)"
+  assert_eq "$(field_of sub lastFailure)" "git 커밋 실패 (훅 차단 등)"
   assert_eq "$(git log -1 --format=%s)" "add sub"
+  assert_eq "$(git status --porcelain -- src)" "" "(변경은 보관되고 트리는 깨끗해야 함)"
+  assert_contains "$(git show harness/sub:src/math.js)" "// TODO: 임시"
+}
+
+# ── 보관: 통과 못 한 기능의 변경이 다음 커밋에 섞이지 않는다 ─────────
+test_risky_change_is_parked_and_not_leaked_into_next_commit() {
+  add_feature pay "결제" 'test -f src/payment.js'
+  add_feature sub "빼기" 'grep -q "const sub" src/math.js'
+  echo 'export const pay = () => true;' > src/payment.js
+  h feature verify pay >/dev/null 2>&1; h feature commit pay >/dev/null 2>&1
+  assert_eq "$(status_of pay)" "awaiting-approval"
+  assert_eq "$(test -e src/payment.js && echo leaked || echo clean)" "clean" "(작업 트리에서 빠져야 함)"
+  assert_eq "$(field_of pay parkedBranch)" "harness/pay"
+
+  echo 'export const sub = (a, b) => a - b;' >> src/math.js
+  h feature verify sub >/dev/null 2>&1; h feature commit sub >/dev/null 2>&1
+  assert_eq "$(status_of sub)" "passing"
+  assert_eq "$(git show --name-only --format= HEAD | grep -c payment || true)" "0" "(결제 코드가 빼기 커밋에 섞이면 안 됨)"
+
+  assert_exit 0 h feature approve pay
+  assert_eq "$(status_of pay)" "passing"
+  assert_eq "$(test -f src/payment.js && echo ok)" "ok"
+  assert_eq "$(git branch --list harness/pay)" "" "(승인 후 보관 브랜치 삭제)"
+}
+
+test_blocked_feature_changes_are_parked() {
+  add_feature mul "곱하기" 'grep -q "const mul =" src/math.js'
+  echo 'export const mull = 1;' >> src/math.js   # 틀린 구현: 실패가 반복돼 막힌다
+  h feature verify mul >/dev/null 2>&1 || true
+  h feature verify mul >/dev/null 2>&1 || true
+  assert_eq "$(status_of mul)" "blocked"
+  assert_eq "$(git status --porcelain -- src)" ""
+  assert_contains "$(git show harness/mul:src/math.js)" "mull"
+  assert_contains "$(h feature reset mul)" "harness/mul"
+}
+
+test_approve_refuses_dirty_tree() {
+  add_feature pay "결제" 'test -f src/payment.js'
+  echo 'export const pay = () => true;' > src/payment.js
+  h feature verify pay >/dev/null 2>&1; h feature commit pay >/dev/null 2>&1
+  echo 'stray' > src/other.js
+  assert_exit 2 h feature approve pay
+  assert_eq "$(status_of pay)" "awaiting-approval"
+}
+
+# ── 판단 요청 ───────────────────────────────────────────────────────
+test_ask_moves_feature_to_needs_decision() {
+  add_feature cache "캐싱" 'true'
+  assert_exit 0 h feature ask cache --question "Redis 와 메모리 캐시 중 무엇으로?"
+  assert_eq "$(status_of cache)" "needs-decision"
+  assert_eq "$(field_of cache question)" "Redis 와 메모리 캐시 중 무엇으로?"
+  assert_eq "$(h feature next)" "" "(판단 대기 기능은 다시 선택되지 않음)"
+  local out
+  out="$(CLAUDE_PROJECT_DIR="$PWD" h hook session < /dev/null)"
+  assert_contains "$(jq -r .hookSpecificOutput.additionalContext <<<"$out")" "판단 필요: cache"
+}
+
+test_decide_records_answer_and_requeues() {
+  add_feature cache "캐싱" 'true'
+  h feature ask cache --question "어디에?" >/dev/null 2>&1
+  assert_exit 0 h feature decide cache --answer "Redis"
+  assert_eq "$(status_of cache)" "pending"
+  assert_eq "$(jq -c '.features[0].decisions' .harness/features.json)" '[{"question":"어디에?","answer":"Redis"}]'
+  h feature ask cache --question "TTL?" >/dev/null 2>&1
+  h feature decide cache --answer "10분" >/dev/null 2>&1
+  assert_eq "$(jq -r '.features[0].decisions | length' .harness/features.json)" "2" "(결정은 누적)"
+}
+
+test_reset_accepts_needs_decision() {
+  add_feature cache "캐싱" 'true'
+  h feature ask cache --question "어디에?" >/dev/null 2>&1
+  assert_exit 0 h feature reset cache
+  assert_eq "$(status_of cache)" "pending"
 }
 
 test_feature_verify_refuses_blocked_feature() {

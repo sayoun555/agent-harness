@@ -9,6 +9,8 @@
 #      ▲                        │  └─ 위험 파일 ─▶ awaiting-approval ──approve──▶ passing
 #      └──── 실패(시도 < 한도) ──┘
 #   실패가 한도에 닿거나 같은 실패가 반복되면 ──▶ blocked (reset 으로만 복귀)
+#   구현자가 스스로 정할 수 없는 설계 결정을 만나면 ──▶ needs-decision (decide 로 답하면 pending)
+#   pending 이 아닌 상태로 떠나는 기능의 변경은 harness/<id> 브랜치에 보관된다 (lib/park.sh)
 #
 
 readonly STATUS_PENDING="pending"
@@ -16,6 +18,7 @@ readonly STATUS_VERIFIED="verified"
 readonly STATUS_PASSING="passing"
 readonly STATUS_AWAITING="awaiting-approval"
 readonly STATUS_BLOCKED="blocked"
+readonly STATUS_NEEDS_DECISION="needs-decision"
 
 features_file() { project_path "$(cfg '.state.featuresFile')"; }
 
@@ -99,6 +102,7 @@ features_summary() {
     + " · 남음 \([.features[] | select(.status == "pending" or .status == "verified")] | length)"
     + (if ids("blocked") != "" then "\n  막힘(사람 확인 필요): " + ids("blocked") else "" end)
     + (if ids("awaiting-approval") != "" then "\n  승인 대기: " + ids("awaiting-approval") else "" end)
+    + ([.features[] | select(.status == "needs-decision") | "\n  판단 필요: \(.id) — \(.question)"] | join(""))
     + (([.features[] | select(.status == "pending")][0]) as $n
        | if $n then "\n  다음: \($n.id) — \($n.description)" else "" end)
   ' "$file"

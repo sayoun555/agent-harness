@@ -1,6 +1,6 @@
 ---
 name: harness
-description: 하네스가 끼워진 프로젝트(.harness/project.json 이 있음)에서 기능 목록 만들기, 루프 실행, 상태 확인, 승인, 막힌 기능 재개를 말로 시킬 때 쓴다. 하네스가 없는 프로젝트에서는 쓰지 않는다.
+description: 하네스가 끼워진 프로젝트(.harness/project.json 이 있음)에서 기능 목록 만들기, 루프 실행, 상태 확인, 판단 요청에 답하기, 승인, 막힌 기능 재개를 말로 시킬 때 쓴다. 하네스가 없는 프로젝트에서는 쓰지 않는다.
 ---
 
 # 하네스 조작
@@ -44,7 +44,8 @@ test -f .harness/project.json && test -x .harness/bin/harness && echo plugged ||
    .harness/bin/harness path workflow
    ```
    `Workflow({ scriptPath: "<위 출력>", args: { maxIterations: 20 } })`
-3. 끝나면 결과를 요약한다: 통과, 승인 대기, 막힘(이유 포함), 남은 기능.
+3. 끝나면 결과를 요약한다: 통과, 판단 필요(질문 그대로), 승인 대기, 막힘(이유 포함), 남은 기능.
+   판단 필요가 있으면 질문을 먼저 보여 주고 답을 받는다.
 
 ## 3. 상태 ("어디까지 됐어", "막힌 거 뭐 있어")
 
@@ -54,14 +55,26 @@ test -f .harness/project.json && test -x .harness/bin/harness && echo plugged ||
 ```
 막힌 기능은 `lastFailure` 와 `lastFailureDetail` 을 함께 보여 준다: `.harness/bin/harness feature list --json`
 
-## 4. 승인 ("결제 기능 승인해 줘")
+## 4. 판단 요청에 답하기 ("캐싱은 Redis로 해")
 
-승인 대기 기능의 `riskyFiles` 와 diff 를 먼저 보여 주고, 사용자가 승인하면:
+`needs-decision` 기능의 질문과 사용자의 답을 짝지어 전달한다. 답은 사용자의 말 그대로 쓴다.
+```bash
+.harness/bin/harness feature decide ID --answer '사용자의 답'
+```
+기능이 다시 대기열에 들어간다. 루프를 다시 돌릴지 묻는다.
+
+## 5. 승인 ("결제 기능 승인해 줘")
+
+승인 대기 기능의 변경은 `harness/ID` 브랜치에 보관돼 있다. `riskyFiles` 와 함께 diff 를 먼저 보여 준다.
+```bash
+git diff HEAD harness/ID
+```
+사용자가 승인하면:
 ```bash
 .harness/bin/harness feature approve ID
 ```
 
-## 5. 막힌 기능 재개 ("그거 다시 해 줘")
+## 6. 막힌 기능 재개 ("그거 다시 해 줘")
 
 사용자가 원인을 확인했거나 고쳤을 때만 재개한다. 원인을 모른 채 재개하지 않는다.
 ```bash
@@ -69,7 +82,7 @@ test -f .harness/project.json && test -x .harness/bin/harness && echo plugged ||
 ```
 그다음 루프를 다시 돌릴지 묻는다.
 
-## 6. 회귀 확인 ("통과한 거 아직 괜찮아?")
+## 7. 회귀 확인 ("통과한 거 아직 괜찮아?")
 
 ```bash
 .harness/bin/harness feature audit

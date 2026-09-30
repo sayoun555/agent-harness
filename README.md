@@ -40,7 +40,8 @@ curl -fsSL https://raw.githubusercontent.com/sayoun555/agent-harness/main/instal
 | "PLAN.md 보고 기능 목록 만들어 줘" | 기능과 acceptance 명령을 표로 제안 → 확인하면 원장에 추가하고 원장만 커밋 |
 | "루프 돌려 줘" | 사전 점검 → feature-loop 실행 → 통과·승인 대기·막힘 요약 |
 | "어디까지 됐어", "막힌 거 뭐 있어" | 원장 상태와 막힌 이유 |
-| "결제 기능 승인해 줘" | 위험 파일과 diff 를 보여 주고 승인 |
+| "캐싱은 Redis로 해" | 판단을 기다리던 기능에 결정을 붙여 다시 대기열에 |
+| "결제 기능 승인해 줘" | 보관 브랜치의 diff 를 보여 주고 승인 |
 | "그거 다시 해 줘" | 원인을 확인한 막힌 기능을 다시 대기열에 |
 
 스킬은 첫 단계에서 `.harness/project.json` 이 있는지 확인하고, 없으면 한 줄만 알리고 끝난다.
@@ -53,11 +54,15 @@ curl -fsSL https://raw.githubusercontent.com/sayoun555/agent-harness/main/instal
 
 ## 사람이 하는 일
 
-| 상황 | 명령 |
-|---|---|
-| 위험 파일이라 승인 대기 | `harness feature approve ID` |
-| 같은 실패 반복·시도 한도로 막힘 | 원인 해결 후 `harness feature reset ID` |
-| 통과했던 기능이 깨졌는지 | `harness feature audit` |
+루프는 네 경우에 기능을 멈추고 다른 기능으로 넘어간다. 끝나면 요약에 모여 나온다.
+통과하지 못한 기능의 변경은 `harness/<기능ID>` 브랜치에 보관하고 작업 트리를 되돌린다. 다음 기능의 커밋에 섞이지 않게 하기 위해서다.
+
+| 상황 | 말로 | 명령으로 |
+|---|---|---|
+| 구현자가 설계 결정을 물음 | "캐싱은 Redis로 해" | `harness feature decide ID --answer 답` |
+| 위험 파일이라 승인 대기 | "결제 기능 승인해 줘" | `harness feature approve ID` |
+| 같은 실패 반복·시도 한도·커밋 실패로 막힘 | 원인을 보고 "그거 다시 해 줘" | `harness feature reset ID` |
+| 통과했던 기능이 깨졌는지 | "통과한 거 아직 괜찮아?" | `harness feature audit` |
 
 ## 다른 도구
 
@@ -67,10 +72,15 @@ curl -fsSL https://raw.githubusercontent.com/sayoun555/agent-harness/main/instal
 - **CI**: `harness init --ci` 가 워크플로우를 만든다. 저장소 변수 `HARNESS_REPO`·`HARNESS_REF` 로 이 하네스를 버전 고정 참조한다.
 - **명령으로 직접**: `.harness/bin/harness --help`
 
+## 근거
+
+왜 이렇게 만들었는지는 [docs/research/](docs/research/README.md) 에 있다. 논문과 신뢰도 티어, 업계 자료, 이전 하네스의 파일럿 측정, 베이스 평가, 결정마다의 근거 강도.
+구조는 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+
 ## 테스트
 
 ```bash
-bash tests/run.sh              # 결정론 부품 39개
+bash tests/run.sh              # 결정론 부품 45개
 node tests/workflow-sim.mjs    # 루프 그래프: LLM 만 가짜, 하네스 명령은 실제 실행
 ```
 

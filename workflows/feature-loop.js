@@ -14,8 +14,10 @@ export const meta = {
 //   선택 ─▶ 구현 ─▶ 게이트 ─▶ 검증 ─▶ 기록 ─▶ 선택 …
 //            ▲       │실패      │반려
 //            └───────┴──────────┘  실패 사유를 다음 구현에 넣는다 (시도 한도 · 반복 감지는 원장이 판정)
+//   구현 노드에서 스스로 정할 수 없는 설계 결정을 만나면 질문을 남기고 판단 대기로 빠진다.
 //   기록 노드에서 위험 파일이면 커밋하지 않고 사람 승인 대기로 빠진다.
-//   blocked · awaiting-approval 기능은 다시 선택되지 않는다. 사람이 reset · approve 한다.
+//   blocked · awaiting-approval · needs-decision 기능은 다시 선택되지 않는다.
+//   그 변경은 harness/<id> 브랜치에 보관된다. 사람이 approve · decide · reset 한다.
 //
 // 상태 전이는 전부 harness CLI(결정론 스크립트)가 한다. 이 스크립트는 흐름만 제어한다.
 
@@ -36,10 +38,12 @@ const COMMAND_RESULT = {
 const IMPLEMENTATION = {
   type: 'object',
   properties: {
+    needsDecision: { type: 'boolean', description: '사람이 정해야 할 설계 결정 때문에 구현하지 않았으면 true' },
+    question: { type: 'string', description: 'needsDecision 일 때: 사람에게 묻는 질문 하나와 선택지. 아니면 빈 문자열' },
     summary: { type: 'string', description: '무엇을 어떻게 바꿨는지 2~3문장' },
     filesChanged: { type: 'array', items: { type: 'string' } },
   },
-  required: ['summary', 'filesChanged'],
+  required: ['needsDecision', 'question', 'summary', 'filesChanged'],
 }
 
 const VERDICT = {
@@ -86,11 +90,15 @@ function implementPrompt(feature) {
         feature.lastFailureDetail ? '```\n' + feature.lastFailureDetail + '\n```' : '',
       ].join('\n')
     : ''
+  const decisions = (feature.decisions || []).length
+    ? ['', '[사람이 내린 결정 — 그대로 따른다]', ...feature.decisions.map((d) => `- ${d.question} → ${d.answer}`)].join('\n')
+    : ''
   return [
     '너는 기능 하나를 구현하는 코더다. 이 저장소의 CLAUDE.md·AGENTS.md 규칙을 따른다.',
     `기능 id: ${feature.id}`,
     `설명: ${feature.description}`,
     `완료 기준(acceptance): \`${feature.acceptance}\``,
+    decisions,
     retry,
     '',
     '규칙',
@@ -98,6 +106,11 @@ function implementPrompt(feature) {
     '- 끝내기 전에 acceptance 명령을 직접 실행해 통과를 확인한다.',
     '- 테스트를 지우거나, assertion 을 줄이거나, skip 하지 않는다. 하네스가 감시한다.',
     '- .harness/features.json 을 편집하지 않고, git commit 하지 않는다. 판정과 커밋은 하네스가 한다.',
+    '',
+    '판단 요청',
+    '- 기능 설명·저장소 코드·설계 문서·위의 결정으로 정할 수 없는 설계 결정이 있으면, 추측으로 고르지 않는다.',
+    '  아무 파일도 바꾸지 말고 needsDecision=true 와 질문 하나(선택지 포함)를 돌려준다.',
+    '- 이름·파일 배치 같은 사소한 구현 세부는 기존 코드 관례를 따라 스스로 정한다. 묻지 않는다.',
   ].join('\n')
 }
 
@@ -116,7 +129,11 @@ async function runIteration(feature, iteration) {
   const tag = `${feature.id}#${feature.attempts + 1}`
   const step = { iteration, feature: feature.id, attempt: feature.attempts + 1 }
 
-  await agent(implementPrompt(feature), { label: `구현:${tag}`, phase: 'Loop', schema: IMPLEMENTATION })
+  const work = await agent(implementPrompt(feature), { label: `구현:${tag}`, phase: 'Loop', schema: IMPLEMENTATION })
+  if (work && work.needsDecision && work.question) {
+    const asked = await runHarness(`feature ask ${feature.id} --question ${shellQuote(work.question)} --json`, `질문:${tag}`)
+    return { ...step, node: 'implement', result: asked ? asked.status : 'no-response', reason: work.question }
+  }
 
   const gate = await runHarness(`feature verify ${feature.id} --json`, `게이트:${tag}`)
   if (!gate || gate.result !== 'pass') {
@@ -174,8 +191,11 @@ return {
   stopReason,
   iterations: steps.length,
   passing: byStatus('passing').map((f) => f.id),
+  needsDecision: (Array.isArray(ledger) ? ledger : [])   // 사람: harness feature decide ID --answer 답
+    .filter((f) => f.status === 'needs-decision').map((f) => ({ id: f.id, question: f.question })),
   awaitingApproval: byStatus('awaiting-approval'),   // 사람: harness feature approve ID
   blocked: byStatus('blocked'),                      // 사람: 원인 해결 후 harness feature reset ID
+  interrupted: byStatus('verified').map((f) => f.id),  // 검증 뒤 기록 전에 끊긴 기능 (정상 실행에선 비어 있다)
   pending: byStatus('pending').map((f) => f.id),
   auditRegressions: audit ? audit.regressed : [],
   steps,
