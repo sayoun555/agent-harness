@@ -1,0 +1,25 @@
+# harness CI 백스톱 — 로컬 훅을 건너뛰어도 여기서 다시 잡힌다.
+# 저장소 변수 HARNESS_REPO(예: owner/agent-harness)와 HARNESS_REF(태그 권장)를 설정한다.
+# 하네스를 버전 고정으로 참조하므로, 하네스를 고쳐도 이 프로젝트는 REF 를 올릴 때만 바뀐다.
+name: harness-gate
+on:
+  pull_request:
+  push:
+    branches: [main, master]
+jobs:
+  harness-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ vars.HARNESS_REPO }}
+          ref: ${{ vars.HARNESS_REF || 'main' }}
+          path: .harness-core
+      # 스택에 맞는 런타임을 여기에 추가한다 (예: actions/setup-java, actions/setup-node).
+      - name: harness ci (check --all + compile + test)
+        run: bash .harness-core/bin/harness ci
+      - name: 테스트 약화 감시 (PR 기준 브랜치 대비)
+        if: github.event_name == 'pull_request'
+        run: bash .harness-core/bin/harness test-guard "origin/${{ github.base_ref }}"

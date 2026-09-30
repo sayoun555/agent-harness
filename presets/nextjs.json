@@ -1,0 +1,84 @@
+{
+  "_about": "Next.js App Router / React / TypeScript. 컴파일은 되지만 런타임에 깨지거나 디자인 시스템을 벗어나는 함정.",
+  "source": {
+    "extensions": [
+      "ts",
+      "tsx",
+      "js",
+      "jsx"
+    ]
+  },
+  "build": {
+    "compileCommand": "npx tsc --noEmit",
+    "testCommand": ""
+  },
+  "testGuard": {
+    "testCasePattern": "\\b(it|test)(\\.each)?\\(",
+    "assertionPattern": "\\bexpect\\(",
+    "skipPattern": "\\b(it|test|describe)\\.skip\\(|\\bx(it|describe)\\("
+  },
+  "review": {
+    "scopeGlobs": [
+      "src/*.ts",
+      "src/*.tsx",
+      "app/*.tsx",
+      "components/*.tsx"
+    ],
+    "guidance": [
+      "디자인 토큰만 쓴다. Tailwind 임의값(text-[#333] 등)은 디자인 시스템 우회다.",
+      "디자인 시스템에 이미 있는 컴포넌트는 새로 만들지 말고 variant로 확장한다.",
+      "'use client' 경계는 최소로. 무거운 렌더는 Server Component로 옮긴다."
+    ],
+    "footguns": [
+      {
+        "id": "hydration-browser-api",
+        "sev": "high",
+        "check": "render 중 window·document·localStorage 접근은 SSR과 클라이언트 결과를 어긋나게 한다. useEffect로 옮긴다."
+      },
+      {
+        "id": "hydration-nondeterministic",
+        "sev": "high",
+        "check": "render에서 new Date()·Date.now()·Math.random()을 쓰면 하이드레이션이 깨진다. useEffect나 useId로."
+      },
+      {
+        "id": "missing-use-client",
+        "sev": "high",
+        "check": "hook이나 브라우저 API를 쓰면서 'use client'가 없으면 App Router에서 조용히 깨진다."
+      },
+      {
+        "id": "server-state-useeffect",
+        "sev": "high",
+        "check": "useEffect로 데이터를 가져오면 abort·캐시·재시도·에러 처리가 모두 빠진다. Server Component나 TanStack Query로."
+      },
+      {
+        "id": "security-xss-client-secret",
+        "sev": "high",
+        "check": "dangerouslySetInnerHTML에 살균하지 않은 콘텐츠, 클라이언트 컴포넌트에 하드코딩한 API 키."
+      },
+      {
+        "id": "rules-of-hooks",
+        "sev": "high",
+        "check": "조건문·루프 안의 hook 호출, exhaustive-deps를 무시한 stale closure."
+      },
+      {
+        "id": "a11y-nonsemantic-interactive",
+        "sev": "high",
+        "check": "div·span에 onClick을 달면 키보드와 스크린리더가 쓸 수 없다. button·a를 쓴다."
+      },
+      {
+        "id": "async-waterfall",
+        "sev": "med",
+        "check": "병렬로 가능한 await를 순차로 기다린다. Promise.all로."
+      }
+    ]
+  },
+  "approval": {
+    "riskGlobs": [
+      "*auth*",
+      "*payment*",
+      "*middleware.ts",
+      "*proxy.ts",
+      "*.env*"
+    ]
+  }
+}

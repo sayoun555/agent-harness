@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+#
+# harness — 범용 에이전트 하네스의 단일 진입점.
+#   각 명령은 commands/<name>.sh 에 있고, 이 파일은 넘겨 주기만 한다.
+#
+set -euo pipefail
+
+HARNESS_HOME="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+export HARNESS_HOME
+
+usage() {
+  cat >&2 <<'EOF'
+사용: harness <명령> [인자...]
+
+  init [--preset 이름]       이 프로젝트에 하네스를 끼운다 (.harness/ 생성)
+  check [--all | 파일...]     결정론 게이트: stub·시크릿(차단), 파일 크기(경고)
+  test-guard [기준-ref]       테스트 약화 감시 (기본 기준: HEAD)
+  feature <하위명령>          기능 원장: list·next·add·verify·reject·commit·approve·reset·status·audit
+  risk [--json]               승인이 필요한 위험 파일 변경 목록
+  review [--context 기능ID | 파일...]  의미 적대자 (LLM CLI) 또는 적대자용 컨텍스트 출력
+  trace [show|tail N]         루프 실행 기록
+  ci                          CI 한 번에: check --all + compile + test
+  hook <session|pre-edit|post-edit|stop>   에디터 훅 어댑터 (Claude·Codex)
+  path <home|workflow>        하네스 경로 출력
+EOF
+}
+
+print_path() {
+  case "${1:-}" in
+    home) printf '%s\n' "$HARNESS_HOME" ;;
+    workflow) printf '%s\n' "$HARNESS_HOME/workflows/feature-loop.js" ;;
+    *) usage; exit 2 ;;
+  esac
+}
+
+main() {
+  local command="${1:-}"
+  [[ -z "$command" || "$command" == "-h" || "$command" == "--help" ]] && { usage; exit 0; }
+  shift
+  [[ "$command" == "path" ]] && { print_path "$@"; return; }
+
+  local script="$HARNESS_HOME/commands/$command.sh"
+  [[ -f "$script" ]] || { printf 'harness: 알 수 없는 명령: %s\n\n' "$command" >&2; usage; exit 2; }
+  exec bash "$script" "$@"
+}
+
+main "$@"

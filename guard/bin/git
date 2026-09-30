@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+#
+# git 래퍼 — --no-verify / commit -n 으로 훅을 건너뛰는 것을 막는다.
+#   PATH 앞에 이 디렉터리를 두면 모든 git 호출을 가로챈다:
+#     export PATH="<harness>/guard/bin:$PATH"
+#   정말 필요하면 HARNESS_ALLOW_NO_VERIFY=1.
+#
+set -euo pipefail
+
+SELF="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/git"
+readonly HOOK_SKIPPING_SUBCOMMANDS="commit push merge cherry-pick rebase am"
+
+find_real_git() {
+  local candidate
+  while IFS= read -r candidate; do
+    [[ -x "$candidate" && "$candidate" != "$SELF" ]] && { echo "$candidate"; return; }
+  done < <(type -ap git)
+  echo /usr/bin/git
+}
+
+first_subcommand() {
+  local arg
+  for arg in "$@"; do
+    [[ " $HOOK_SKIPPING_SUBCOMMANDS " == *" $arg "* ]] && { echo "$arg"; return; }
+  done
+}
+
+skips_hooks() {  # skips_hooks <subcommand> <args...>
+  local subcommand="$1" arg; shift
+  for arg in "$@"; do
+    [[ "$arg" == "--no-verify" ]] && return 0
+    [[ "$arg" == "-n" && "$subcommand" == "commit" ]] && return 0
+  done
+  return 1
+}
+
+subcommand="$(first_subcommand "$@")"
+if [[ -n "$subcommand" && "${HARNESS_ALLOW_NO_VERIFY:-0}" != "1" ]] && skips_hooks "$subcommand" "$@"; then
+  echo "⛔ git 래퍼: '$subcommand' 에서 훅 우회(--no-verify / -n)를 막았다. 훅이 실패한 원인을 고친다." >&2
+  exit 1
+fi
+exec "$(find_real_git)" "$@"

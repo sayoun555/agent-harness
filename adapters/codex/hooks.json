@@ -1,0 +1,14 @@
+{
+  "hooks": {
+    "SessionStart": [
+      { "hooks": [ { "type": "command", "command": "bash __HARNESS_HOME__/bin/harness hook session", "timeout": 15 } ] }
+    ],
+    "PostToolUse": [
+      { "matcher": "apply_patch",
+        "hooks": [ { "type": "command", "command": "bash __HARNESS_HOME__/adapters/codex/codex-hook.sh post", "timeout": 60 } ] }
+    ],
+    "Stop": [
+      { "hooks": [ { "type": "command", "command": "bash __HARNESS_HOME__/adapters/codex/codex-hook.sh stop", "timeout": 300 } ] }
+    ]
+  }
+}

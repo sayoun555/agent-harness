@@ -1,0 +1,6 @@
+{
+  "name": "agent-harness",
+  "version": "0.1.0",
+  "description": "범용 에이전트 하네스: 결정론 게이트 · 테스트 약화 감시 · 기능 원장 · 제한 루프(feature-loop) · 사람 승인 노드. 프로젝트에 .harness/project.json 이 있을 때만 동작한다.",
+  "author": { "name": "sayoun555" }
+}

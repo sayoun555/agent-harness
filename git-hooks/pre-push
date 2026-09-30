@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# pre-push — push 전에 전체 소스 결정론 게이트. HARNESS_REVIEW_ON_PUSH=1 이면 의미 적대자도.
+set -euo pipefail
+HARNESS_HOME="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+bash "$HARNESS_HOME/bin/harness" check --all
+if [[ "${HARNESS_REVIEW_ON_PUSH:-0}" == "1" ]]; then
+  changed="$(git diff --name-only '@{push}..' 2>/dev/null || git diff --name-only HEAD~1.. 2>/dev/null || true)"
+  # shellcheck disable=SC2086  # 파일 목록을 인자로 펼친다
+  [[ -n "$changed" ]] && bash "$HARNESS_HOME/bin/harness" review $changed
+fi
+exit 0

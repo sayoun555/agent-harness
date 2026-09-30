@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# pre-commit — staged 변경에 결정론 게이트. 실패하면 커밋을 막는다.
+# 어느 에이전트나 사람이 커밋하든 발동한다. 하네스가 없는 저장소에서는 통과.
+set -euo pipefail
+HARNESS_HOME="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+exec bash "$HARNESS_HOME/bin/harness" check

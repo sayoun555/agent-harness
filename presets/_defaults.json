@@ -1,0 +1,60 @@
+{
+  "_about": "모든 프로젝트의 기본값. 프리셋이 덮고, 프로젝트의 .harness/project.json 이 마지막에 덮는다. 객체는 깊게 병합, 배열은 교체.",
+  "designDocsDir": "",
+  "source": {
+    "root": "",
+    "mainGlobs": [],
+    "extensions": [
+      "java",
+      "kt",
+      "ts",
+      "tsx",
+      "js",
+      "jsx",
+      "py",
+      "go",
+      "rb",
+      "rs"
+    ],
+    "testPathPattern": "(^|/)(test|tests|__tests__|e2e)/|[._-](test|spec)\\.[a-z]+$"
+  },
+  "build": {
+    "compileCommand": "",
+    "testCommand": ""
+  },
+  "rules": {
+    "maxFileLines": 400,
+    "stubMarkerPattern": "(//|#|/\\*|\\*)[[:space:]]*(TODO|FIXME|XXX|HACK|stub|STUB|placeholder|미구현)|Not implemented",
+    "secretPattern": "(password|passwd|secret|api[_]?key|access[_]?key|private[_]?key|client[_]?secret|token)[[:space:]]*[:=][[:space:]]*[\"'][^\"']{8,}[\"']",
+    "secretExcludePattern": "\\$\\{|process\\.env|import\\.meta|getenv|os\\.environ|changeme|placeholder|example|your[_-]|xxxx|redacted|dummy|sample",
+    "softMarkerPattern": "(//|#|/\\*|\\*)[[:space:]]*(임시|추후|일단)",
+    "_about": "stubMarkerPattern 은 강한 신호라 차단한다. softMarkerPattern(임시·추후·일단)은 '현재는 이렇게 동작한다'는 설명일 수도 있는 약한 신호라 경고만 한다."
+  },
+  "testGuard": {
+    "_about": "테스트 약화 감시. 합계가 줄면 실패(루프 게이트), 파일별 감소는 경고만(정당한 이동·리팩터를 막지 않기 위해).",
+    "testCasePattern": "",
+    "assertionPattern": "",
+    "skipPattern": ""
+  },
+  "review": {
+    "scopeGlobs": [],
+    "guidance": [],
+    "footguns": []
+  },
+  "state": {
+    "featuresFile": ".harness/features.json",
+    "progressFile": "progress.md",
+    "traceFile": ".harness/trace.jsonl"
+  },
+  "loop": {
+    "_about": "maxAttempts: 기능 하나의 최대 시도. repeatLimit: 같은 실패가 연속 이 횟수면 막힘. maxIterations: 루프 한 번의 최대 바퀴.",
+    "maxAttempts": 3,
+    "repeatLimit": 2,
+    "maxIterations": 20,
+    "failureTailLines": 40
+  },
+  "approval": {
+    "_about": "이 글롭에 걸리는 파일을 바꾼 기능은 자동 커밋하지 않고 사람 승인을 기다린다.",
+    "riskGlobs": []
+  }
+}

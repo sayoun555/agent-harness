@@ -1,0 +1,20 @@
+name: test
+on:
+  push:
+  pull_request:
+jobs:
+  test:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - name: git identity
+        run: git config --global user.email ci@example.com && git config --global user.name ci
+      - name: 결정론 부품
+        run: bash tests/run.sh
+      - name: 루프 그래프 시뮬레이션
+        run: node tests/workflow-sim.mjs

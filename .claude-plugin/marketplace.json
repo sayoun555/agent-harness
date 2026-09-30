@@ -1,0 +1,14 @@
+{
+  "name": "agent-harness-local",
+  "owner": {
+    "name": "sayoun555"
+  },
+  "plugins": [
+    {
+      "name": "agent-harness",
+      "source": "./",
+      "description": "범용 에이전트 하네스 (게이트 · 기능 원장 · feature-loop)"
+    }
+  ],
+  "description": "sayoun555 의 범용 에이전트 하네스 (로컬 마켓플레이스)"
+}
