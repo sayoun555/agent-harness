@@ -37,6 +37,7 @@ print_feature_context() {  # print_feature_context <id>
   echo "## 검토 대상 기능"
   jq -r '"- id: \(.id)\n- 설명: \(.description)\n- acceptance: \(.acceptance)"' <<<"$(feature_json "$id")"
   echo
+  print_design_reference "$id"
   echo "## 바뀐 파일 (HEAD 대비)"
   changed_files | sed 's/^/- /'
   echo
@@ -45,6 +46,17 @@ print_feature_context() {  # print_feature_context <id>
   git diff HEAD -- . ':(exclude).harness/features.json' | head -n 600
   echo '```'
   print_new_files
+}
+
+# 기능이 설계 문서에서 왔으면, 합의된 설계 결정과 어긋났는지도 본다
+print_design_reference() {
+  local doc
+  doc="$(feature_field "$1" designDoc)"
+  [[ -z "$doc" ]] && return 0
+  echo "## 합의된 설계: $doc"
+  echo "- 이 기능은 위 설계 문서에서 나왔다. 문서의 '설계 결정' 표와 어긋난 구현은 반려한다."
+  echo "- 사람이 정한 결정(상태가 '사람 결정: …')은 특히 그대로 따라야 한다."
+  echo
 }
 
 print_new_files() {  # git diff 에 안 나오는 신규(untracked) 파일 내용

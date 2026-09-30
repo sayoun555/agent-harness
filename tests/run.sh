@@ -459,6 +459,119 @@ test_preflight_carries_mcp_and_never_blocks_on_it() {
   assert_eq "$(git status --porcelain)" "" "(확인만 하고 아무것도 설치·변경하지 않음)"
 }
 
+# ── 설계 단계 ───────────────────────────────────────────────────────
+# write_design <path> <결정 상태> [검증 계획에서 뺄 구성 요소]
+write_design() {
+  local path="$1" status="$2" unverified="${3:-}"
+  mkdir -p "$(dirname "$path")"
+  cat > "$path" <<DOC
+# 설계: 계산기
+
+## 완성 정의
+
+사용자가 두 수의 차와 곱을 얻는다. 데이터는 입력값뿐이다.
+
+## 범위 밖
+
+나눗셈.
+
+## 현재 상태
+
+src/math.js 에 add 만 있다. 함수는 named export 로 둔다.
+
+## 설계 결정
+
+| ID | 결정 | 선택 | 근거 기준 | 상태 |
+|---|---|---|---|---|
+| D1 | 모듈 형식 | ES 모듈 | C5 | 결정됨 |
+| D2 | 저장 방식 | 없음 · 로컬 저장소 | C2 | $status |
+
+## 구성 요소
+
+| 구성 요소 | 역할 | 왜 필요한가 | 근거 기준 |
+|---|---|---|---|
+| sub | 빼기 | 완성 정의의 차 | C1 |
+| mul | 곱하기 | 완성 정의의 곱 | C1 |
+
+## 검증 계획
+
+| 구성 요소 | 확인 방법 | 명령 |
+|---|---|---|
+$( [[ "$unverified" == "sub" ]] || echo '| sub | 함수 존재 | `grep -q "const sub" src/math.js` |' )
+| mul | 함수 존재 | \`grep -q "const mul" src/math.js \|\| exit 1\` |
+
+## 기능 분해
+
+| id | 설명 | acceptance |
+|---|---|---|
+| calc-sub | 빼기 함수 | \`grep -q "const sub" src/math.js\` |
+| calc-mul | 곱하기 함수 | \`grep -q "const mul" src/math.js \|\| exit 1\` |
+DOC
+}
+
+test_design_new_creates_doc_that_fails_until_filled() {
+  local doc
+  doc="$(h design new calc)"
+  assert_eq "$doc" "docs/design/calc.md"
+  assert_contains "$(head -1 "$doc")" "# 설계: calc"
+  assert_exit 1 h design check "$doc"
+  assert_contains "$(h design check "$doc")" "절이 비어 있다: ## 완성 정의"
+  assert_exit 2 h design new calc
+}
+
+test_design_check_passes_complete_doc() {
+  write_design docs/design/calc.md "사람 결정: 없음"
+  assert_exit 0 h design check docs/design/calc.md
+  assert_eq "$(h design check docs/design/calc.md --json | jq -c '{ok, problems, unresolved}')" '{"ok":true,"problems":[],"unresolved":[]}'
+}
+
+test_design_check_lists_pending_human_decisions() {
+  write_design docs/design/calc.md "사람 결정 필요"
+  assert_exit 1 h design check docs/design/calc.md
+  assert_eq "$(h design check docs/design/calc.md --json | jq -c '.unresolved')" '[{"id":"D2","decision":"저장 방식","options":"없음 · 로컬 저장소"}]'
+}
+
+test_design_check_requires_verification_per_component() {
+  write_design docs/design/calc.md "결정됨" sub
+  assert_contains "$(h design check docs/design/calc.md)" "구성 요소 'sub' 의 검증 방법이 없다"
+}
+
+test_design_check_rejects_unknown_decision_status() {
+  write_design docs/design/calc.md "아마도"
+  assert_contains "$(h design check docs/design/calc.md)" "결정 D2 의 상태가 올바르지 않다"
+}
+
+test_design_import_refuses_until_decisions_are_made() {
+  write_design docs/design/calc.md "사람 결정 필요"
+  assert_exit 1 h design import docs/design/calc.md
+  assert_eq "$(jq '.features | length' .harness/features.json)" "0"
+}
+
+test_design_import_adds_features_with_design_reference() {
+  write_design docs/design/calc.md "사람 결정: 없음"
+  assert_exit 0 h design import docs/design/calc.md
+  assert_eq "$(jq -r '[.features[].id] | join(",")' .harness/features.json)" "calc-sub,calc-mul"
+  assert_eq "$(field_of calc-mul acceptance)" 'grep -q "const mul" src/math.js || exit 1' "(이스케이프된 파이프 복원)"
+  assert_eq "$(field_of calc-sub designDoc)" "docs/design/calc.md"
+  assert_contains "$(h design import docs/design/calc.md)" "건너뜀 2개"
+}
+
+test_review_context_points_to_agreed_design() {
+  write_design docs/design/calc.md "사람 결정: 없음"
+  h design import docs/design/calc.md >/dev/null
+  assert_contains "$(h review --context calc-sub)" "합의된 설계: docs/design/calc.md"
+}
+
+test_design_criteria_follow_preset_and_project() {
+  assert_contains "$(h design criteria)" "C1. 완성의 정의부터"
+  assert_eq "$(h design criteria | grep -c 'F1\.' || true)" "0" "(generic 에는 프론트엔드 기준이 없다)"
+  jq '.preset = "nextjs"' .harness/project.json > p && mv p .harness/project.json
+  assert_contains "$(h design criteria)" "F1. 데이터와 표현을 분리한다"
+  mkdir -p docs && echo "# 우리 팀 기준" > docs/team-criteria.md
+  jq '.design = {criteria: ["common.md", "frontend.md", "docs/team-criteria.md"]}' .harness/project.json > p && mv p .harness/project.json
+  assert_contains "$(h design criteria)" "# 우리 팀 기준"
+}
+
 # ── 훅 ──────────────────────────────────────────────────────────────
 hook_input() { jq -cn --arg p "$1" '{tool_input: {file_path: $p}}'; }
 

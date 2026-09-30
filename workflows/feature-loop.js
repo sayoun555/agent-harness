@@ -98,6 +98,7 @@ function implementPrompt(feature) {
     `기능 id: ${feature.id}`,
     `설명: ${feature.description}`,
     `완료 기준(acceptance): \`${feature.acceptance}\``,
+    feature.designDoc ? `설계 문서: ${feature.designDoc} — 먼저 읽고, 이 기능에 해당하는 구성 요소와 설계 결정을 그대로 따른다.` : '',
     decisions,
     retry,
     '',

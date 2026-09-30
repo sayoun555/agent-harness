@@ -63,5 +63,12 @@
   "mcp": {
     "_about": "프리셋이 권하는 MCP. 비어 있으면 MCP 확인을 하지 않는다(claude mcp list 호출 안 함).",
     "recommended": []
+  },
+  "design": {
+    "_about": "설계 단계가 따르는 기준. 이름만 적으면 하네스의 design/criteria/, 경로(/ 포함)면 프로젝트 파일. 프로젝트 기준을 덧붙이려면 project.json 에서 배열을 통째로 다시 적는다.",
+    "criteria": [
+      "common.md"
+    ],
+    "docsDir": "docs/design"
   }
 }

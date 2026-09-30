@@ -55,8 +55,8 @@ function makeProject() {
       reviewHint: 'Playwright MCP 로 화면을 확인한다. 먼저 {startCommand}' }] },
   })
   writeFileSync(configPath, JSON.stringify(config, null, 2))
-  const add = (id, desc, acceptance) => run(`bash ${HARNESS} feature add --id ${id} --desc '${desc}' --acceptance '${acceptance}' 2>/dev/null`)
-  add('sub', '빼기', 'grep -q "const sub" src/math.js')
+  const add = (id, desc, acceptance, extra = '') => run(`bash ${HARNESS} feature add --id ${id} --desc '${desc}' --acceptance '${acceptance}' ${extra} 2>/dev/null`)
+  add('sub', '빼기', 'grep -q "const sub" src/math.js', '--design docs/design/calc.md')
   add('div', '나누기', 'test -f src/div.js')
   add('pay', '결제', 'test -f src/payment.js')
   add('tail', '꼬리', 'test -f src/tail.js')
@@ -68,7 +68,7 @@ function makeProject() {
 
 // ── 가짜 agent(): 시나리오 ─────────────────────────────────────────
 function makeFakeAgent(project) {
-  const calls = { implement: {}, review: {}, reviewPrompts: [] }
+  const calls = { implement: {}, review: {}, reviewPrompts: [], implementPrompts: {} }
   const bump = (kind, id) => (calls[kind][id] = (calls[kind][id] || 0) + 1)
   const featureIdIn = (prompt) => (prompt.match(/기능 id: ([\w-]+)/) || prompt.match(/--context ([\w-]+)/) || [])[1]
 
@@ -93,6 +93,7 @@ function makeFakeAgent(project) {
     }
     const id = featureIdIn(prompt)
     if (props.includes('filesChanged')) {                   // 구현 노드
+      calls.implementPrompts[id] = prompt
       bump('implement', id)
       if (questions[id]) return { needsDecision: true, question: questions[id], summary: '', filesChanged: [] }
       implement[id](calls.implement[id])
@@ -164,6 +165,10 @@ try {
   assert.equal(trace.find((t) => t.event === 'ask').question, questions_cache)
   // 작은따옴표가 든 LLM 반려 사유가 셸을 거쳐 그대로 기록돼야 한다 (명령 주입 방지 확인)
   assert.equal(trace.find((t) => t.event === 'review').reason, "과설계 — 'it's' 따옴표도 안전해야 한다")
+
+  // 설계에서 온 기능은 구현자에게 설계 문서가 전달되고, 아닌 기능에는 없다
+  assert.match(fakeAgent.calls.implementPrompts.sub, /설계 문서: docs\/design\/calc\.md/)
+  assert.doesNotMatch(fakeAgent.calls.implementPrompts.div, /설계 문서:/)
 
   // 연결된 MCP 는 검증자 지시로 붙고, 설치 제안은 비어야 한다
   assert.ok(fakeAgent.calls.reviewPrompts.length > 0)

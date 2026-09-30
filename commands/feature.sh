@@ -4,7 +4,7 @@
 #
 #   list [--json]                         전체 기능
 #   next [--json]                         다음 pending 기능 (없으면 빈 출력 / {})
-#   add --id ID --desc 설명 --acceptance 명령
+#   add --id ID --desc 설명 --acceptance 명령 [--design 설계문서]
 #   preflight [--json]                    루프 시작 전 점검 (깨끗한 트리·원장·acceptance)
 #   verify ID [--json]                    컴파일 → 테스트 약화 감시 → acceptance. 통과 시 verified
 #   reject ID --reason 이유 [--json]       적대자 반려. 실패로 기록
@@ -106,17 +106,19 @@ cmd_status() {
 
 # ── 추가 ────────────────────────────────────────────────────────────
 cmd_add() {
-  local id desc acceptance file
+  local id desc acceptance design file
   id="$(flag_value --id "$@")"
   desc="$(flag_value --desc "$@")"
   acceptance="$(flag_value --acceptance "$@")"
+  design="$(flag_value --design "$@")"
   [[ -n "$id" && -n "$desc" && -n "$acceptance" ]] || die "$EXIT_USAGE" "사용: feature add --id ID --desc 설명 --acceptance 명령"
   file="$(features_file)"
   [[ -f "$file" ]] || { mkdir -p "$(dirname "$file")"; echo '{"features":[]}' > "$file"; }
   [[ -z "$(feature_json "$id")" ]] || die "$EXIT_USAGE" "이미 있는 기능이다: $id"
   json_update "$file" '.features += [{id: $id, description: $desc, acceptance: $acc,
-                                       status: "pending", attempts: 0, repeats: 0}]' \
-    --arg id "$id" --arg desc "$desc" --arg acc "$acceptance"
+                                       status: "pending", attempts: 0, repeats: 0}
+                                      + (if $design == "" then {} else {designDoc: $design} end)]' \
+    --arg id "$id" --arg desc "$desc" --arg acc "$acceptance" --arg design "$design"
   echo "➕ 기능 추가: $id"
 }
 

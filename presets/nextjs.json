@@ -95,5 +95,11 @@
         "reviewHint": "UI·라우트·폼을 바꾼 기능이면 Playwright MCP 로 그 화면을 열어 실제로 동작하는지 확인한다. 앱이 떠 있지 않으면 먼저 백그라운드로 띄운다: {startCommand}. 확인이 끝나면 띄운 프로세스를 끈다. 콘솔 오류·화면 상태를 근거로 판정한다. UI 와 무관한 기능이면 이 확인은 건너뛴다."
       }
     ]
+  },
+  "design": {
+    "criteria": [
+      "common.md",
+      "frontend.md"
+    ]
   }
 }

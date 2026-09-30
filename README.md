@@ -37,6 +37,7 @@ curl -fsSL https://raw.githubusercontent.com/sayoun555/agent-harness/main/instal
 
 | 이렇게 말하면 | 하네스가 하는 일 |
 |---|---|
+| "이 코드 완성품으로 만들어 줘", "설계부터 해 줘" | 설계 기준으로 설계 문서 작성 → 사람이 정할 결정을 한꺼번에 질문 → 검사·독립 검토 → 확인하면 원장에 추가 |
 | "PLAN.md 보고 기능 목록 만들어 줘" | 기능과 acceptance 명령을 표로 제안 → 확인하면 원장에 추가하고 원장만 커밋 |
 | "루프 돌려 줘" | 사전 점검 → feature-loop 실행 → 통과·승인 대기·막힘 요약 |
 | "어디까지 됐어", "막힌 거 뭐 있어" | 원장 상태와 막힌 이유 |
@@ -46,6 +47,18 @@ curl -fsSL https://raw.githubusercontent.com/sayoun555/agent-harness/main/instal
 
 스킬은 첫 단계에서 `.harness/project.json` 이 있는지 확인하고, 없으면 한 줄만 알리고 끝난다.
 훅은 모델 밖의 셸 스크립트라 하네스가 없는 곳에서는 출력 없이 끝난다(토큰 0).
+
+## 설계 단계
+
+루프가 기능을 구현하기 전에, 설계를 문서로 정하고 사람의 확인을 받는다.
+
+1. **기준**: `design/criteria/` 의 초안. 공통(C1~C5)과 프론트엔드(F1~F5). 기준마다 규칙·이유·적용 조건·확인 방법이 있고, 부딪히면 번호가 작은 쪽이 이긴다. 프로젝트는 자기 기준 파일을 덧붙인다.
+2. **문서**: `design/templates/design.md` 양식. 완성 정의, 범위 밖, 현재 상태, 설계 결정, 구성 요소, 검증 계획, 기능 분해.
+3. **검사**: `harness design check` 가 빈 절, 사람 결정 대기, 검증 방법이 없는 구성 요소, 잘못된 기능 분해를 잡는다.
+4. **원장**: `harness design import` 는 검사를 통과한 설계만 원장에 넣는다. 기능마다 설계 문서가 붙어서, 구현자와 검증자가 합의된 설계를 따른다.
+
+되돌리기 어려운 결정(스키마·외부 API 계약·인증·공개 URL)은 에이전트가 정하지 않고 사람에게 묻는다.
+기준은 초안이다. 우선순위와 적용 조건은 프로젝트 소유자가 고쳐 확정한다.
 
 ## MCP
 
@@ -96,7 +109,7 @@ curl -fsSL https://raw.githubusercontent.com/sayoun555/agent-harness/main/instal
 ## 테스트
 
 ```bash
-bash tests/run.sh              # 결정론 부품 51개
+bash tests/run.sh              # 결정론 부품 60개
 node tests/workflow-sim.mjs    # 루프 그래프: LLM 만 가짜, 하네스 명령은 실제 실행
 ```
 
