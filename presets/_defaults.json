@@ -29,7 +29,9 @@
     "secretExcludePattern": "\\$\\{|process\\.env|import\\.meta|getenv|os\\.environ|changeme|placeholder|example|your[_-]|xxxx|redacted|dummy|sample",
     "softMarkerPattern": "(//|#|/\\*|\\*)[[:space:]]*(임시|추후|일단)",
     "_about": "stubMarkerPattern 은 강한 신호라 차단한다. softMarkerPattern(임시·추후·일단)은 '현재는 이렇게 동작한다'는 설명일 수도 있는 약한 신호라 경고만 한다.",
-    "hardcodePatterns": []
+    "hardcodePatterns": [],
+    "maxPublicMethods": "",
+    "forbiddenImports": []
   },
   "testGuard": {
     "_about": "테스트 약화 감시. 합계가 줄면 실패(루프 게이트), 파일별 감소는 경고만(정당한 이동·리팩터를 막지 않기 위해).",
@@ -40,7 +42,9 @@
   "review": {
     "scopeGlobs": [],
     "guidance": [],
-    "footguns": []
+    "footguns": [],
+    "criteria": [],
+    "_criteriaAbout": "검증자가 코드를 판정할 때 읽는 기준 파일(design/criteria/ 의 이름이나 프로젝트 경로). 구현자에게는 내용을 주입하지 않고 볼 수 있는 명령만 알려 준다."
   },
   "state": {
     "featuresFile": ".harness/features.json",

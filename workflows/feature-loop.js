@@ -118,6 +118,7 @@ function implementPrompt(feature) {
     '',
     '규칙',
     '- 이 기능에 필요한 만큼만 바꾼다. 요구되지 않은 추상화는 만들지 않는다.',
+    `- 검증자는 이 저장소의 코드 기준으로 판정한다. 필요하면 \`${HARNESS} review --criteria\` 로 본다.`,
     '- 끝내기 전에 acceptance 명령을 직접 실행해 통과를 확인한다.',
     '- 테스트를 지우거나, assertion 을 줄이거나, skip 하지 않는다. 하네스가 감시한다.',
     '- .harness/features.json 을 편집하지 않고, git commit 하지 않는다. 판정과 커밋은 하네스가 한다.',

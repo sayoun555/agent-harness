@@ -24,6 +24,30 @@
         "pattern": "\"(localhost|127\\.0\\.0\\.1):[0-9]{2,5}\"",
         "message": "하드코딩된 호스트·포트 — 설정으로 (B8)"
       }
+    ],
+    "maxPublicMethods": 7,
+    "forbiddenImports": [
+      {
+        "id": "domain-outer-layer",
+        "files": "*/domain/*.java",
+        "pattern": "^import[[:space:]]+([A-Za-z0-9_]+\\.)+(infrastructure|api|application|web|controller)\\.",
+        "message": "도메인이 바깥 레이어를 import 한다 — 의존성 방향 (B2)",
+        "severity": "warn"
+      },
+      {
+        "id": "domain-spring-web",
+        "files": "*/domain/*.java",
+        "pattern": "^import[[:space:]]+org\\.springframework\\.(web|http)\\.",
+        "message": "도메인이 웹 계층에 의존한다 (B2)",
+        "severity": "warn"
+      },
+      {
+        "id": "application-infra",
+        "files": "*/application/*.java",
+        "pattern": "^import[[:space:]]+([A-Za-z0-9_]+\\.)+(infrastructure|api|web|controller)\\.",
+        "message": "Application 이 인프라·API 를 직접 import 한다 — 도메인 인터페이스로 받는다 (B2)",
+        "severity": "warn"
+      }
     ]
   },
   "testGuard": {
@@ -36,12 +60,7 @@
       "*/src/main/java/*.java",
       "*/src/main/kotlin/*.kt"
     ],
-    "guidance": [
-      "DDD 레이어: Controller에 비즈니스 로직 금지. Application 서비스는 오케스트레이션만, 계산·정책 판단은 Domain으로.",
-      "인터페이스는 실제 다형성·교체·외부 경계가 있을 때만. 단일 구현·고정 순수 함수에 인터페이스와 주입을 얹는 것은 과설계(YAGNI)다.",
-      "record·sealed로 표현된 VO와 닫힌 계층은 정당한 캡슐화다. final class와 수동 equals/hashCode를 강요하지 마라(Java 21 관용구).",
-      "Entity setter 남발, Tell-Don't-Ask 위반, 원시 타입 노출(VO가 있는데 double 두 개로 좌표 전달 등)은 캡슐화 위반이다."
-    ],
+    "guidance": [],
     "footguns": [
       {
         "id": "tx-self-invocation",
@@ -68,6 +87,10 @@
         "sev": "med",
         "check": "수동 ack가 정상·예외 모든 경로에서 호출되나. @KafkaListener가 예외를 삼켜 DLT·재시도를 우회하지 않나."
       }
+    ],
+    "criteria": [
+      "backend.md",
+      "backend-code.md"
     ]
   },
   "approval": {

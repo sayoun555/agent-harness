@@ -70,6 +70,9 @@
         "sev": "med",
         "check": "병렬로 가능한 await를 순차로 기다린다. Promise.all로."
       }
+    ],
+    "criteria": [
+      "frontend.md"
     ]
   },
   "approval": {

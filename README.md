@@ -67,6 +67,10 @@ curl -fsSL https://raw.githubusercontent.com/sayoun555/agent-harness/main/instal
    | `common.md` | C1~C5: 완성 정의, 되돌리기 어려운 결정은 사람에게, 필요한 만큼만, 검증 가능, 기존 관례 | 전부 |
    | `frontend.md` | F1~F5: 데이터·표현 분리, 상태 구분, 모든 상태, 디자인 시스템, 접근성·성능 | nextjs |
    | `backend.md` | B1~B9: 정석, 의존성 방향, 도메인이 규칙을 가짐, 일관성 등급, 브로커는 근거 있을 때만, API 계약, 데이터 접근, 비밀, 모던 Java | spring |
+   | `backend-code.md` | K1~K9 (코드 기준, 검증자가 판정): 이름, 작은 메서드, 단일 책임, Tell-Don't-Ask, 원시 타입 포장, 일급 컬렉션, SOLID, 디자인 패턴은 조건이 맞을 때만, 타입 있는 설정 | spring |
+
+   코드 기준은 구현자에게 주입하지 않는다. 검증자의 판정 컨텍스트에 들어가고, 구현자는 `harness review --criteria` 로 볼 수 있다.
+   결정론으로 잡을 수 있는 것은 check 게이트가 경고한다: public 메서드 수(K3), 금지된 import(B2, `severity: block` 이면 차단), 하드코딩 URL(K9).
 2. **문서**: `design/templates/design.md` 양식. 완성 정의, 범위 밖, 현재 상태, 설계 결정, 구성 요소, 검증 계획, 기능 분해.
 3. **검사**: `harness design check` 가 빈 절, 사람 결정 대기, 검증 방법이 없는 구성 요소, 잘못된 기능 분해를 잡는다.
 4. **원장**: `harness design import` 는 검사를 통과한 설계만 원장에 넣는다. 기능마다 설계 문서가 붙어서, 구현자와 검증자가 합의된 설계를 따른다.
@@ -141,7 +145,7 @@ GitHub 트리거는 main 에 직접 커밋하지 않고 PR 을 연다. 사람이
 ## 테스트
 
 ```bash
-bash tests/run.sh                     # 결정론 부품 79개
+bash tests/run.sh                     # 결정론 부품 85개
 node tests/workflow-sim.mjs           # 루프 그래프: LLM 만 가짜, 하네스 명령은 실제 실행
 node tests/workflow-sim-parallel.mjs  # 병렬 분기: 실제 git 워크트리, 충돌 포함
 ```

@@ -759,6 +759,74 @@ test_loop_schedule_prints_cron_line_only() {
   assert_eq "$(git status --porcelain)" ""
 }
 
+# ── 백엔드 코드 기준 ────────────────────────────────────────────────
+use_spring() { jq '.preset = "spring"' .harness/project.json > p && mv p .harness/project.json; }
+
+# java_class <경로> <public 메서드 수> [import 줄]
+java_class() {
+  local path="$1" count="$2" import_line="${3:-}" i
+  mkdir -p "$(dirname "$path")"
+  {
+    echo "package com.shop.order.domain;"
+    [[ -n "$import_line" ]] && echo "$import_line"
+    echo "public class Order {"
+    echo "    public Order() {}"
+    echo "    public record Line(long qty) {}"
+    for ((i = 1; i <= count; i++)); do echo "    public long amount$i(final long base) { return base; }"; done
+    echo "    private void hidden() {}"
+    echo "}"
+  } > "$path"
+}
+
+test_check_warns_on_too_many_public_methods() {
+  use_spring
+  java_class src/main/java/com/shop/order/domain/Order.java 8
+  assert_contains "$(h check src/main/java/com/shop/order/domain/Order.java)" "[methods]"
+  assert_contains "$(h check src/main/java/com/shop/order/domain/Order.java)" "public 메서드 8개 > 7"
+  java_class src/main/java/com/shop/order/domain/Order.java 7
+  assert_eq "$(h check src/main/java/com/shop/order/domain/Order.java | grep -c '\[methods\]' || true)" "0" "(생성자·record 선언은 세지 않는다)"
+}
+
+test_check_warns_on_domain_importing_outer_layer() {
+  use_spring
+  java_class src/main/java/com/shop/order/domain/Order.java 1 "import com.shop.order.infrastructure.JpaOrderRepository;"
+  local out
+  out="$(h check src/main/java/com/shop/order/domain/Order.java)"
+  assert_contains "$out" "[import:domain-outer-layer]"
+  assert_exit 0 h check src/main/java/com/shop/order/domain/Order.java
+  java_class src/main/java/com/shop/order/domain/Order.java 1 "import com.shop.order.domain.OrderRepository;"
+  assert_eq "$(h check src/main/java/com/shop/order/domain/Order.java | grep -c 'import:' || true)" "0"
+}
+
+test_check_forbidden_import_can_block() {
+  use_spring
+  jq '.rules = {forbiddenImports: [{id: "no-infra", files: "*/domain/*.java",
+        pattern: "^import[[:space:]]+([A-Za-z0-9_]+\\.)+infrastructure\\.", message: "의존성 방향", severity: "block"}]}' \
+    .harness/project.json > p && mv p .harness/project.json
+  java_class src/main/java/com/shop/order/domain/Order.java 1 "import com.shop.order.infrastructure.JpaOrderRepository;"
+  assert_exit 1 h check src/main/java/com/shop/order/domain/Order.java
+}
+
+test_review_criteria_for_spring_include_code_and_design() {
+  use_spring
+  local out
+  out="$(h review --criteria)"
+  assert_contains "$out" "K6. 컬렉션에 규칙이 붙으면 일급 컬렉션으로"
+  assert_contains "$out" "K8. 디자인 패턴은 조건이 맞을 때만"
+  assert_contains "$out" "K9. 설정은 타입 있는 객체로 한곳에서"
+  assert_contains "$out" "B2. 의존성 방향을 지킨다"
+}
+
+test_review_criteria_empty_for_generic() {
+  assert_eq "$(h review --criteria)" ""
+}
+
+test_review_context_carries_code_criteria() {
+  use_spring
+  add_feature a "첫째" 'true'
+  assert_contains "$(h review --context a)" "K4. 객체에 일을 시킨다"
+}
+
 # ── 훅 ──────────────────────────────────────────────────────────────
 hook_input() { jq -cn --arg p "$1" '{tool_input: {file_path: $p}}'; }
 

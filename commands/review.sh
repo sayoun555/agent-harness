@@ -2,6 +2,7 @@
 #
 # harness review — 의미 적대자.
 #   harness review --context 기능ID   적대자에게 줄 컨텍스트만 출력 (루프 워크플로우가 쓴다, LLM 호출 없음)
+#   harness review --criteria         검증자가 판정에 쓰는 기준 파일만 출력 (구현자가 볼 수 있게)
 #   harness review [파일...]          LLM CLI(codex·claude 자동 감지)로 검토 (git 훅·Codex 용)
 #                                     파일을 안 주면 staged 파일
 #   HARNESS_REVIEW_BLOCK=1           위반 보고 시 exit 1 (기본은 보고만)
@@ -10,6 +11,7 @@
 set -euo pipefail
 source "$HARNESS_HOME/lib/common.sh"
 source "$HARNESS_HOME/lib/features.sh"
+source "$HARNESS_HOME/lib/design.sh"
 require_commands git jq
 project_is_plugged_in || { info "review: 이 프로젝트에 하네스가 없다 — 건너뜀"; exit 0; }
 cd "$PROJECT_ROOT"
@@ -17,10 +19,23 @@ cd "$PROJECT_ROOT"
 # 재귀 가드: 적대자 LLM 안의 훅이 또 review 를 부르지 않게 한다.
 [[ "${HARNESS_REVIEWING:-0}" == "1" ]] && { info "review: 재귀 가드 — 건너뜀"; exit 0; }
 
+# 검증 기준 파일 (review.criteria)
+print_review_criteria() {
+  local entry file
+  while IFS= read -r entry; do
+    [[ -z "$entry" ]] && continue
+    file="$(criteria_file_for "$entry")"
+    if [[ -f "$file" ]]; then cat "$file"; echo; else info "⚠️ 검증 기준 파일이 없다: $file"; fi
+  done < <(cfg_lines '.review.criteria')
+}
+
 print_stack_criteria() {
-  echo "## 스택 판단 기준"
-  cfg_lines '.review.guidance' | sed 's/^/- /'
-  echo
+  print_review_criteria
+  if [[ -n "$(cfg_lines '.review.guidance')" ]]; then
+    echo "## 스택 판단 기준"
+    cfg_lines '.review.guidance' | sed 's/^/- /'
+    echo
+  fi
   echo "## 스택 footgun (각각 점검)"
   load_config
   jq -r '(.review.footguns // [])[] | "- [\(.sev)] \(.id): \(.check)"' <<<"$RESOLVED_CONFIG"
@@ -129,7 +144,9 @@ run_llm_review() {
   exit 0
 }
 
-if [[ "${1:-}" == "--context" ]]; then
+if [[ "${1:-}" == "--criteria" ]]; then
+  print_review_criteria
+elif [[ "${1:-}" == "--context" ]]; then
   [[ -n "${2:-}" ]] || die "$EXIT_USAGE" "사용: harness review --context 기능ID"
   print_context "$2"
 else
