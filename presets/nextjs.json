@@ -101,5 +101,29 @@
       "common.md",
       "frontend.md"
     ]
+  },
+  "rules": {
+    "hardcodePatterns": [
+      {
+        "id": "tailwind-arbitrary",
+        "pattern": "-\\[(#[0-9a-fA-F]{3,8}|[0-9.]+(px|rem|em))\\]",
+        "message": "Tailwind 임의값 — 디자인 토큰이나 기본 스케일로 (F4)"
+      },
+      {
+        "id": "hex-color",
+        "pattern": "[\"'`]#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?[\"'`]",
+        "message": "하드코딩된 색 — 토큰으로 (F4)"
+      },
+      {
+        "id": "data-literal",
+        "pattern": "^[[:space:]]*(export[[:space:]]+)?(const|let)[[:space:]]+[A-Za-z_][A-Za-z0-9_]*[[:space:]]*(:[^=]+)?=[[:space:]]*\\[[[:space:]]*\\{",
+        "message": "코드 안의 객체 배열 — 데이터가 바뀌거나 외부에서 오면 데이터 계층으로 (F1)"
+      },
+      {
+        "id": "localhost-url",
+        "pattern": "https?://(localhost|127\\.0\\.0\\.1)",
+        "message": "하드코딩된 URL — 환경 변수로"
+      }
+    ]
   }
 }

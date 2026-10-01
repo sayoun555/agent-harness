@@ -12,7 +12,19 @@
   },
   "rules": {
     "maxFileLines": 200,
-    "stubMarkerPattern": "(//|/\\*|\\*)[[:space:]]*(TODO|FIXME|XXX|HACK|stub|STUB|placeholder|미구현)|throw new UnsupportedOperationException|throw new RuntimeException\\(\"Not implemented"
+    "stubMarkerPattern": "(//|/\\*|\\*)[[:space:]]*(TODO|FIXME|XXX|HACK|stub|STUB|placeholder|미구현)|throw new UnsupportedOperationException|throw new RuntimeException\\(\"Not implemented",
+    "hardcodePatterns": [
+      {
+        "id": "hardcoded-url",
+        "pattern": "\"https?://[^\"$]+\"",
+        "message": "하드코딩된 URL — 설정의 ${...} 참조로 (B8)"
+      },
+      {
+        "id": "magic-port",
+        "pattern": "\"(localhost|127\\.0\\.0\\.1):[0-9]{2,5}\"",
+        "message": "하드코딩된 호스트·포트 — 설정으로 (B8)"
+      }
+    ]
   },
   "testGuard": {
     "testCasePattern": "@(Test|ParameterizedTest|RepeatedTest)\\b",

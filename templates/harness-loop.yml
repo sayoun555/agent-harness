@@ -1,0 +1,63 @@
+# harness 루프 트리거 — 일정 또는 기능 원장 변경 때 루프를 돌리고, 결과를 PR 로 올린다.
+# main 에 직접 커밋하지 않는다. 사람이 PR 을 보고 병합하는 것이 마지막 게이트다.
+#
+# 필요한 것
+#   저장소 비밀   ANTHROPIC_API_KEY
+#   저장소 변수   HARNESS_REPO (예: owner/agent-harness), HARNESS_REF (태그 권장)
+#   스택 런타임   아래 "런타임" 단계에 setup-node·setup-java 등을 넣는다
+name: harness-loop
+on:
+  workflow_dispatch:
+    inputs:
+      max: { description: '최대 바퀴', default: '10' }
+  schedule:
+    - cron: '0 18 * * *'          # 매일 03:00 KST
+  push:
+    branches: [main]
+    paths: ['.harness/features.json']
+concurrency:
+  group: harness-loop
+  cancel-in-progress: false
+permissions:
+  contents: write
+  pull-requests: write
+jobs:
+  loop:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ vars.HARNESS_REPO }}
+          ref: ${{ vars.HARNESS_REF || 'main' }}
+          path: .harness-core
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      # - name: 런타임
+      #   uses: actions/setup-java@v4
+      #   with: { distribution: temurin, java-version: '21' }
+      - name: 준비
+        run: |
+          npm i -g @anthropic-ai/claude-code
+          git config user.name "harness-loop"
+          git config user.email "harness-loop@users.noreply.github.com"
+          echo ".harness-core/" >> .git/info/exclude
+          bash .harness-core/bin/harness init --no-git-hooks --no-plugin
+          git switch -c "harness/loop-${{ github.run_id }}"
+          # init 이 .gitignore 에 새 항목을 더했으면 먼저 커밋한다 (루프는 깨끗한 트리에서만 시작한다)
+          git diff --quiet -- .gitignore || { git add .gitignore && git commit -qm "chore(harness): gitignore 갱신"; }
+      - name: 루프 (할 일이 없으면 모델을 부르지 않는다)
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: bash .harness-core/bin/harness loop run --max "${{ inputs.max || '10' }}" --plugin-dir .harness-core
+      - name: PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ "$(git rev-list --count origin/main..HEAD)" = "0" ]; then echo "새 커밋 없음"; exit 0; fi
+          git push -u origin HEAD
+          summary="$(bash .harness-core/bin/harness feature status)"
+          gh pr create --base main --title "harness loop: $(date -u +%F)" \
+            --body "$(printf '하네스 루프 결과입니다. 기능마다 커밋이 하나씩입니다.\n\n```\n%s\n```\n' "$summary")"

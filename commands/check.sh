@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 #
 # harness check — 결정론 게이트. git 훅·CI·에디터 훅이 같이 쓴다.
-#   강한 stub 마커·하드코딩 시크릿 = 차단(exit 1). 약한 마커(임시·추후·일단)·파일 크기 = 경고.
+#   강한 stub 마커·하드코딩 시크릿 = 차단(exit 1).
+#   약한 마커(임시·추후·일단)·파일 크기·하드코딩 값(프리셋의 rules.hardcodePatterns) = 경고.
 #   의미 위반(설계·footgun)은 review 가 본다.
 #
 #   harness check            staged 파일 (pre-commit)
@@ -67,6 +68,25 @@ find_hardcoded_secrets() {
 
 line_count() { wc -l < "$1" | tr -d ' '; }
 
+# 하드코딩 값 — 프리셋이 스택별 패턴을 준다. 경고만 한다(휴리스틱이라 오탐이 있다).
+HARDCODE_PATTERNS="$(load_config; jq -c '(.rules.hardcodePatterns // [])[]' <<<"$RESOLVED_CONFIG")"
+
+warn_hardcodes() {  # warn_hardcodes <file>
+  local file="$1" rule id pattern message hits
+  [[ -z "$HARDCODE_PATTERNS" ]] && return 0
+  while IFS= read -r rule; do
+    id="$(jq -r .id <<<"$rule")"
+    pattern="$(jq -r .pattern <<<"$rule")"
+    message="$(jq -r .message <<<"$rule")"
+    hits="$(grep -nIE -- "$pattern" "$file" 2>/dev/null | head -3 || true)"
+    [[ -z "$hits" ]] && continue
+    printf '⚠️ [hardcode:%s] %s — %s\n' "$id" "$file" "$message"
+    sed 's/^/      /' <<<"$hits"
+    warned=1
+  done <<<"$HARDCODE_PATTERNS"
+  return 0
+}
+
 # ── 실행 ────────────────────────────────────────────────────────────
 blocked=0
 warned=0
@@ -88,6 +108,7 @@ check_file() {
     sed 's/^/      /' <<<"$evidence"
     warned=1
   fi
+  warn_hardcodes "$file"
   evidence="$(find_hardcoded_secrets "$file")"
   [[ -n "$evidence" ]] && report_block "secret" "$file" "하드코딩 의심 — 환경 변수로 옮긴다."
   lines="$(line_count "$file")"

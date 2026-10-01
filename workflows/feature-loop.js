@@ -1,7 +1,7 @@
 export const meta = {
   name: 'feature-loop',
   description: '기능 원장의 pending 기능을 하나씩 구현 → 결정론 게이트 → 독립 적대자 → 커밋하는 제한 루프. 막히거나 위험하면 사람에게 넘긴다.',
-  whenToUse: '.harness/features.json 에 acceptance 가 있는 pending 기능이 있고, 작업 트리가 깨끗할 때.',
+  whenToUse: '.harness/features.json 에 acceptance 가 있는 pending 기능이 있고, 작업 트리가 깨끗할 때. args: { maxIterations, parallel }',
   phases: [
     { title: 'Preflight', detail: '깨끗한 트리 · 원장 · acceptance 점검' },
     { title: 'Loop', detail: '선택 → 구현 → 게이트 → 검증 → 기록, 기능마다 반복' },
@@ -18,6 +18,10 @@ export const meta = {
 //   기록 노드에서 위험 파일이면 커밋하지 않고 사람 승인 대기로 빠진다.
 //   blocked · awaiting-approval · needs-decision 기능은 다시 선택되지 않는다.
 //   그 변경은 harness/<id> 브랜치에 보관된다. 사람이 approve · decide · reset 한다.
+//
+//   병렬(loop.parallel ≥ 2): 한 바퀴에 기능 여러 개를 각자 워크트리에서 동시에 구현하고
+//   harness/wip-<id> 브랜치에 커밋한다. 가져오기·게이트·검증·기록은 하나씩 한다(원장은 한 곳에서만 쓴다).
+//   두 기능이 같은 곳을 고쳐 충돌하면 실패로 기록되고, 다음 시도에서 최신 HEAD 위에 다시 구현한다.
 //
 // 상태 전이는 전부 harness CLI(결정론 스크립트)가 한다. 이 스크립트는 흐름만 제어한다.
 
@@ -44,6 +48,16 @@ const IMPLEMENTATION = {
     filesChanged: { type: 'array', items: { type: 'string' } },
   },
   required: ['needsDecision', 'question', 'summary', 'filesChanged'],
+}
+
+// 워크트리에서 구현할 때는 결과 브랜치를 함께 돌려준다
+const ISOLATED_IMPLEMENTATION = {
+  type: 'object',
+  properties: {
+    ...IMPLEMENTATION.properties,
+    branch: { type: 'string', description: '구현을 커밋한 브랜치 이름. needsDecision 이면 빈 문자열' },
+  },
+  required: [...IMPLEMENTATION.required, 'branch'],
 }
 
 const VERDICT = {
@@ -115,6 +129,25 @@ function implementPrompt(feature) {
   ].join('\n')
 }
 
+function wipBranch(feature) { return `harness/wip-${feature.id}` }
+
+// 워크트리 구현자: 같은 규칙에, 커밋 대상을 자기 브랜치로 바꾼다
+function isolatedImplementPrompt(feature) {
+  return implementPrompt(feature).replace(
+    '- .harness/features.json 을 편집하지 않고, git commit 하지 않는다. 판정과 커밋은 하네스가 한다.',
+    [
+      '- 너는 따로 떨어진 git 워크트리에 있다. 다른 기능이 동시에 다른 워크트리에서 구현되고 있다.',
+      '- .harness/features.json 을 편집하지 않는다. 판정과 최종 커밋은 하네스가 메인 작업 트리에서 한다.',
+      '- 의존성(node_modules 등)이 없어 acceptance 를 못 돌리면 건너뛰어도 된다. 하네스가 메인에서 다시 검증한다.',
+      '- 구현을 마치면 아래 명령으로 네 브랜치에 커밋하고, branch 에 그 이름을 돌려준다.',
+      '```bash',
+      `git checkout -q -b ${wipBranch(feature)}`,
+      "git add -A -- . ':(exclude).harness/features.json'",
+      `git commit -q -m "wip(${feature.id})"`,
+      '```',
+    ].join('\n'))
+}
+
 // 사전 점검에서 연결된 MCP 만 검증 지시로 붙인다. 없으면 지시도 없다.
 let runtimeHints = []
 
@@ -132,17 +165,21 @@ function reviewPrompt(feature) {
   ].join('\n')
 }
 
-// ── 한 바퀴 ────────────────────────────────────────────────────────
-async function runIteration(feature, iteration) {
-  const tag = `${feature.id}#${feature.attempts + 1}`
-  const step = { iteration, feature: feature.id, attempt: feature.attempts + 1 }
+// ── 노드 ───────────────────────────────────────────────────────────
+function tagOf(feature) { return `${feature.id}#${feature.attempts + 1}` }
+function stepOf(feature, iteration) { return { iteration, feature: feature.id, attempt: feature.attempts + 1 } }
 
-  const work = await agent(implementPrompt(feature), { label: `구현:${tag}`, phase: 'Loop', schema: IMPLEMENTATION })
-  if (work && work.needsDecision && work.question) {
-    const asked = await runHarness(`feature ask ${feature.id} --question ${shellQuote(work.question)} --json`, `질문:${tag}`)
-    return { ...step, node: 'implement', result: asked ? asked.status : 'no-response', reason: work.question }
-  }
+// 구현자가 판단을 요청했으면 원장에 질문을 남긴다. 요청하지 않았으면 null.
+async function askIfNeeded(feature, work, iteration) {
+  if (!(work && work.needsDecision && work.question)) return null
+  const asked = await runHarness(`feature ask ${feature.id} --question ${shellQuote(work.question)} --json`, `질문:${tagOf(feature)}`)
+  return { ...stepOf(feature, iteration), node: 'implement', result: asked ? asked.status : 'no-response', reason: work.question }
+}
 
+// 게이트 → 검증 → 기록. 변경이 이미 메인 작업 트리에 있어야 한다.
+async function gateReviewRecord(feature, iteration) {
+  const tag = tagOf(feature)
+  const step = stepOf(feature, iteration)
   const gate = await runHarness(`feature verify ${feature.id} --json`, `게이트:${tag}`)
   if (!gate || gate.result !== 'pass') {
     return { ...step, node: 'gate', result: gate ? gate.status : 'no-response', reason: gate ? gate.reason : '' }
@@ -161,6 +198,36 @@ async function runIteration(feature, iteration) {
   return { ...step, node: 'record', result: recorded ? recorded.result : 'no-response', reason: recorded ? recorded.reason : '' }
 }
 
+// ── 한 바퀴: 순차 ──────────────────────────────────────────────────
+async function runSequential(feature, iteration) {
+  const work = await agent(implementPrompt(feature), { label: `구현:${tagOf(feature)}`, phase: 'Loop', schema: IMPLEMENTATION })
+  return (await askIfNeeded(feature, work, iteration)) || gateReviewRecord(feature, iteration)
+}
+
+// ── 한 바퀴: 병렬 ──────────────────────────────────────────────────
+// 구현만 동시에(워크트리), 가져오기부터는 하나씩.
+async function runParallel(batch, iteration) {
+  const works = await parallel(batch.map((feature) => () =>
+    agent(isolatedImplementPrompt(feature), {
+      label: `구현:${tagOf(feature)}`, phase: 'Loop', schema: ISOLATED_IMPLEMENTATION, isolation: 'worktree',
+    })))
+  const outcomes = []
+  for (let i = 0; i < batch.length; i++) {
+    const feature = batch[i]
+    const work = works[i]
+    const asked = await askIfNeeded(feature, work, iteration)
+    if (asked) { outcomes.push(asked); continue }
+    const branch = (work && work.branch) || wipBranch(feature)
+    const adopted = await runHarness(`feature adopt ${feature.id} ${shellQuote(branch)} --json`, `가져오기:${tagOf(feature)}`)
+    if (!adopted || adopted.result !== 'adopted') {
+      outcomes.push({ ...stepOf(feature, iteration), node: 'adopt', result: adopted ? adopted.status : 'no-response', reason: adopted ? adopted.reason : '' })
+      continue
+    }
+    outcomes.push(await gateReviewRecord(feature, iteration))
+  }
+  return outcomes
+}
+
 // ── 실행 ───────────────────────────────────────────────────────────
 let currentPhase = 'Preflight'
 phase('Preflight')
@@ -175,6 +242,9 @@ const mcpSuggestions = mcp.filter((m) => m.state !== 'connected')
   .map((m) => ({ name: m.name, state: m.state, purpose: m.purpose, install: m.install }))
 if (runtimeHints.length) log(`런타임 검증 MCP 연결됨: ${mcp.filter((m) => m.state === 'connected').map((m) => m.name).join(', ')}`)
 
+const PARALLEL = Math.max(1, Number((args && args.parallel) || preflight.parallel || 1))
+if (PARALLEL > 1) log(`병렬 모드: 한 바퀴에 최대 ${PARALLEL}개 기능을 워크트리에서 동시에 구현`)
+
 currentPhase = 'Loop'
 phase('Loop')
 const steps = []
@@ -182,13 +252,21 @@ let stopReason = 'max-iterations'
 for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
   if (budget.total && budget.remaining() < BUDGET_FLOOR) { stopReason = 'budget'; break }
 
-  const feature = await runHarness('feature next --json', `선택#${iteration}`)
-  if (!feature || !feature.id) { stopReason = 'all-done'; break }
-
-  const outcome = await runIteration(feature, iteration)
-  outcome.outputTokensSoFar = budget.spent()
-  steps.push(outcome)
-  log(`[${iteration}/${MAX_ITERATIONS}] ${feature.id}: ${outcome.node} → ${outcome.result}`)
+  let outcomes
+  if (PARALLEL > 1) {
+    const batch = await runHarness(`feature next --json --limit ${PARALLEL}`, `선택#${iteration}`)
+    if (!Array.isArray(batch) || batch.length === 0) { stopReason = 'all-done'; break }
+    outcomes = await runParallel(batch, iteration)
+  } else {
+    const feature = await runHarness('feature next --json', `선택#${iteration}`)
+    if (!feature || !feature.id) { stopReason = 'all-done'; break }
+    outcomes = [await runSequential(feature, iteration)]
+  }
+  for (const outcome of outcomes) {
+    outcome.outputTokensSoFar = budget.spent()
+    steps.push(outcome)
+    log(`[${iteration}/${MAX_ITERATIONS}] ${outcome.feature}: ${outcome.node} → ${outcome.result}`)
+  }
 }
 if (stopReason === 'max-iterations') log(`최대 ${MAX_ITERATIONS}바퀴에 도달 — 남은 기능은 다음 실행에서 이어간다.`)
 

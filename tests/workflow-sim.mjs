@@ -110,14 +110,8 @@ function makeFakeAgent(project) {
 }
 
 // ── 워크플로우 로드 ────────────────────────────────────────────────
-async function loadWorkflow(globals) {
-  const source = readFileSync(join(ROOT, 'workflows/feature-loop.js'), 'utf8').replace(/^export const meta/m, 'const meta')
-  const wrapped = `export default async function run({ agent, phase, log, args, budget }) {\n${source}\n}`
-  const file = join(mkdtempSync(join(tmpdir(), 'wf-')), 'wf.mjs')
-  writeFileSync(file, wrapped)
-  const module = await import(file)
-  return () => module.default(globals)
-}
+import { loadWorkflow, fakeParallel } from './sim-helpers.mjs'
+
 
 // ── 실행 · 단언 ────────────────────────────────────────────────────
 const project = makeProject()
@@ -126,6 +120,7 @@ try {
   const fakeAgent = makeFakeAgent(project)
   const run = await loadWorkflow({
     agent: fakeAgent,
+    parallel: fakeParallel,
     phase: () => {},
     log: (m) => logs.push(m),
     args: { maxIterations: 20 },

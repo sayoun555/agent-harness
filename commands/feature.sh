@@ -3,7 +3,8 @@
 # harness feature — 기능 원장. 루프의 상태와 종료 조건이 여기 있다.
 #
 #   list [--json]                         전체 기능
-#   next [--json]                         다음 pending 기능 (없으면 빈 출력 / {})
+#   next [--json] [--limit N]             다음 pending 기능 (없으면 빈 출력 / {}). --limit 이면 최대 N개 배열
+#   adopt ID 브랜치 [--json]              병렬 구현 결과(워크트리 브랜치)를 작업 트리로 가져온다. 충돌이면 실패로 기록
 #   add --id ID --desc 설명 --acceptance 명령 [--design 설계문서]
 #   preflight [--json]                    루프 시작 전 점검 (깨끗한 트리·원장·acceptance)
 #   verify ID [--json]                    컴파일 → 테스트 약화 감시 → acceptance. 통과 시 verified
@@ -89,7 +90,13 @@ cmd_list() {
 }
 
 cmd_next() {
-  local id
+  local id limit
+  limit="$(flag_value --limit "$@")"
+  if [[ -n "$limit" ]]; then
+    [[ "$limit" =~ ^[1-9][0-9]*$ ]] || die "$EXIT_USAGE" "--limit 은 1 이상의 정수"
+    jq -c --argjson n "$limit" --arg s "$STATUS_PENDING" '[.features[] | select(.status == $s)][:$n]' "$(features_file)"
+    return
+  fi
   id="$(next_pending_id)"
   if has_flag --json "$@"; then
     [[ -n "$id" ]] && feature_json "$id" || echo '{}'
@@ -148,7 +155,8 @@ cmd_preflight() {
   local mcp_json
   mcp_json="$(mcp_status_json)"
   emit "$(has_flag --json "$@" && echo 1 || echo 0)" \
-    "$(jq -cn --argjson ok "$ok" --argjson problems "$problems_json" --argjson mcp "$mcp_json" '{ok: $ok, problems: $problems, mcp: $mcp}')" \
+    "$(jq -cn --argjson ok "$ok" --argjson problems "$problems_json" --argjson mcp "$mcp_json" \
+       --argjson parallel "$(cfg '.loop.parallel')" '{ok: $ok, problems: $problems, mcp: $mcp, parallel: $parallel}')" \
     "$([[ "$ok" == true ]] && echo "✅ preflight 통과" || { echo "⛔ preflight 실패"; printf '   - %s\n' "${problems[@]}"; })
 $(mcp_status_text "$mcp_json")"
   [[ "$ok" == true ]]
@@ -302,6 +310,38 @@ cmd_reset() {
   return 0
 }
 
+# ── 병렬 구현 결과 가져오기 ─────────────────────────────────────────
+# 구현자는 자기 워크트리에서 브랜치에 커밋한다. 게이트·검증·기록은 이 작업 트리에서 하나씩 한다.
+cmd_adopt() {
+  local id="${1:-}" branch="${2:-}"; shift 2 || true
+  local json_mode=0 status
+  [[ -n "$id" && -n "$branch" ]] || die "$EXIT_USAGE" "사용: feature adopt ID 브랜치"
+  require_features_file; require_feature "$id"
+  require_status "$id" "$STATUS_PENDING"
+  has_flag --json "$@" && json_mode=1
+  has_changes_outside_ledger && die "$EXIT_USAGE" "작업 트리가 깨끗하지 않다 — 가져오기 전에 이전 기능이 기록돼야 한다"
+
+  if ! git rev-parse --verify --quiet "$branch^{commit}" >/dev/null; then
+    status="$(record_failure "$id" "구현 결과 없음" "브랜치 $branch 가 없다 — 구현자가 커밋하지 않았다")"
+    trace_add adopt "$(jq -cn --arg id "$id" --arg s "$status" '{feature: $id, result: "missing", status: $s}')"
+    emit "$json_mode" "$(result_json "$id" missing "구현 결과 없음")" "⛔ adopt $id: 브랜치 없음 → $status"
+    return "$EXIT_GATE_FAILED"
+  fi
+  if ! unpark_changes "$branch"; then
+    git branch -D -q "$branch" 2>/dev/null || true
+    status="$(record_failure "$id" "병합 충돌" "$UNPARK_ERROR")"
+    park_if_blocked "$id" "$status"
+    trace_add adopt "$(jq -cn --arg id "$id" --arg s "$status" '{feature: $id, result: "conflict", status: $s}')"
+    emit "$json_mode" "$(result_json "$id" conflict "병합 충돌 — 다음 시도에서 현재 HEAD 위에 다시 구현" "$UNPARK_ERROR")" \
+      "⛔ adopt $id: 병합 충돌 → $status"
+    return "$EXIT_GATE_FAILED"
+  fi
+  git reset -q    # cherry-pick --no-commit 이 스테이징한 것을 작업 트리 변경으로 되돌린다
+  git branch -D -q "$branch"
+  trace_add adopt "$(jq -cn --arg id "$id" '{feature: $id, result: "adopted"}')"
+  emit "$json_mode" "$(result_json "$id" adopted "작업 트리로 가져옴")" "📥 adopt $id: 가져옴"
+}
+
 # ── 판단 요청 (구현자 → 사람) ─────────────────────────────────────────
 cmd_ask() {
   local id="${1:-}"; shift || true
@@ -363,12 +403,13 @@ main() {
     verify)    cmd_verify "$@" ;;
     reject)    cmd_reject "$@" ;;
     commit)    cmd_commit "$@" ;;
+    adopt)     cmd_adopt "$@" ;;
     ask)       cmd_ask "$@" ;;
     decide)    cmd_decide "$@" ;;
     approve)   cmd_approve "$@" ;;
     reset)     cmd_reset "$@" ;;
     audit)     cmd_audit "$@" ;;
-    *)         die "$EXIT_USAGE" "사용: harness feature <list|next|add|preflight|verify|reject|commit|ask|decide|approve|reset|status|audit>" ;;
+    *)         die "$EXIT_USAGE" "사용: harness feature <list|next|add|preflight|verify|reject|commit|adopt|ask|decide|approve|reset|status|audit>" ;;
   esac
 }
 

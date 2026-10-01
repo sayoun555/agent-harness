@@ -18,3 +18,5 @@ jobs:
         run: bash tests/run.sh
       - name: 루프 그래프 시뮬레이션
         run: node tests/workflow-sim.mjs
+      - name: 병렬 분기 시뮬레이션
+        run: node tests/workflow-sim-parallel.mjs

@@ -98,6 +98,32 @@ test_check_only_warns_on_soft_korean_marker() {
   assert_exit 0 h check src/math.js
 }
 
+test_check_warns_on_hardcoded_values_from_nextjs_preset() {
+  jq '.preset = "nextjs"' .harness/project.json > p && mv p .harness/project.json
+  mkdir -p src/app
+  cat > src/app/page.tsx <<'TSX'
+const products = [{ id: 1, name: "키보드" }];
+export default function Page() {
+  return <h1 className="text-[#333] p-[18px]" style={{ color: "#1a2b3c" }}>{products.length}</h1>;
+}
+fetch("http://localhost:8080/api");
+TSX
+  local out
+  out="$(h check src/app/page.tsx)"
+  assert_contains "$out" "[hardcode:tailwind-arbitrary]"
+  assert_contains "$out" "[hardcode:hex-color]"
+  assert_contains "$out" "[hardcode:data-literal]"
+  assert_contains "$out" "[hardcode:localhost-url]"
+  assert_exit 0 h check src/app/page.tsx
+}
+
+test_check_hardcode_patterns_are_quiet_on_clean_code() {
+  jq '.preset = "nextjs"' .harness/project.json > p && mv p .harness/project.json
+  mkdir -p src/app
+  printf 'export default function Page({ items }: { items: string[] }) {\n  return <ul className="p-4 text-gray-800">{items.map((i) => <li key={i}>{i}</li>)}</ul>;\n}\n' > src/app/page.tsx
+  assert_eq "$(h check src/app/page.tsx | grep -c hardcode || true)" "0"
+}
+
 test_check_blocks_hardcoded_secret() {
   echo 'const apiKey = "k3y-live-abcdef123456";' >> src/math.js
   assert_exit 1 h check src/math.js
@@ -339,6 +365,30 @@ test_feature_next_returns_first_pending() {
   assert_eq "$(h feature next --json | jq -r .description)" "둘째"
 }
 
+test_feature_next_limit_returns_batch() {
+  add_feature a "첫째" 'true'
+  add_feature b "둘째" 'true'
+  add_feature c "셋째" 'true'
+  assert_eq "$(h feature next --json --limit 2 | jq -c 'map(.id)')" '["a","b"]'
+  assert_exit 2 h feature next --json --limit 0
+}
+
+test_feature_adopt_without_branch_counts_as_failure() {
+  add_feature a "첫째" 'true'
+  assert_exit 1 h feature adopt a harness/wip-a
+  assert_eq "$(status_of a)" "pending"
+  assert_eq "$(field_of a lastFailure)" "구현 결과 없음"
+}
+
+test_feature_adopt_brings_branch_into_worktree() {
+  add_feature a "첫째" 'test -f src/a.js'
+  git checkout -q -b harness/wip-a && echo 'x' > src/a.js && git add -A && git commit -qm wip && git checkout -q -
+  assert_exit 0 h feature adopt a harness/wip-a
+  assert_eq "$(git status --porcelain -- src)" "?? src/a.js" "(가져온 변경은 커밋 전 작업 트리에)"
+  assert_eq "$(git branch --list harness/wip-a)" ""
+  assert_exit 0 h feature verify a
+}
+
 test_trace_records_each_node() {
   add_feature sub "빼기" 'true'
   h feature verify sub >/dev/null 2>&1
@@ -367,6 +417,17 @@ test_init_no_plugin_leaves_claude_settings_alone() {
   rm -rf .claude
   h init --no-plugin --no-git-hooks >/dev/null 2>&1
   assert_eq "$(test -e .claude/settings.json && echo exists || echo absent)" "absent"
+}
+
+test_path_workflow_is_a_copy_inside_the_project() {
+  local path
+  path="$(h path workflow)"
+  assert_eq "$path" "$(pwd -P)/.harness/bin/feature-loop.js" "(Workflow 도구는 작업 디렉터리 밖 경로를 거부한다)"
+  assert_eq "$(cmp -s "$path" "$ROOT/workflows/feature-loop.js" && echo same)" "same"
+  echo "// 낡은 사본" > "$path"
+  h path workflow >/dev/null
+  assert_eq "$(cmp -s "$path" "$ROOT/workflows/feature-loop.js" && echo same)" "same" "(원본과 다르면 다시 쓴다)"
+  assert_eq "$(git status --porcelain)" "" "(사본은 gitignore 된 .harness/bin/ 에 있다)"
 }
 
 test_session_hook_recreates_missing_shim() {
@@ -592,6 +653,112 @@ test_design_criteria_follow_preset_and_project() {
   assert_contains "$(h design criteria)" "# 우리 팀 기준"
 }
 
+# ── Figma 렌즈 ──────────────────────────────────────────────────────
+# fake_uimatch_bin <종료코드> → 가짜 uimatch. 받은 인자를 그 디렉터리의 args 에 남긴다.
+fake_uimatch_bin() {
+  local dir
+  dir="$(mktemp -d)"
+  printf '#!/usr/bin/env bash\nprintf "%%s\\n" "$@" > "%s/args"\nexit %s\n' "$dir" "$1" > "$dir/uimatch"
+  chmod +x "$dir/uimatch"
+  printf '%s\n' "$dir"
+}
+
+configure_figma() {
+  jq '.figma = {fileKey: "KEY123", components: [
+        {name: "button", node: "1-2", url: "http://localhost:6006/iframe.html?id=button", selector: "#root button"},
+        {name: "card", node: "3-4", url: "http://localhost:6006/iframe.html?id=card"}]}' \
+    .harness/project.json > p && mv p .harness/project.json
+}
+
+test_figma_is_off_without_components() {
+  assert_contains "$(h figma)" "figma.components 가 비어 있다"
+  assert_exit 0 h figma
+}
+
+test_figma_skips_without_engine_or_token() {
+  configure_figma
+  assert_contains "$(PATH="/usr/bin:/bin" h figma)" "UIMatch 가 없다"
+  local bin
+  bin="$(fake_uimatch_bin 0)"
+  assert_contains "$(PATH="$bin:$PATH" FIGMA_ACCESS_TOKEN= h figma)" "FIGMA_ACCESS_TOKEN 이 없다"
+  assert_exit 0 env PATH="$bin:$PATH" FIGMA_ACCESS_TOKEN= bash "$HARNESS" figma
+}
+
+test_figma_passes_documented_arguments() {
+  configure_figma
+  local bin
+  bin="$(fake_uimatch_bin 0)"
+  assert_exit 0 env PATH="$bin:$PATH" FIGMA_ACCESS_TOKEN=figd_x bash "$HARNESS" figma button
+  assert_eq "$(paste -sd ' ' "$bin/args")" "compare figma=KEY123:1-2 story=http://localhost:6006/iframe.html?id=button profile=component/strict outDir=$(pwd -P)/.harness/figma/button selector=#root button"
+}
+
+test_figma_fails_when_design_diverges() {
+  configure_figma
+  local bin
+  bin="$(fake_uimatch_bin 1)"
+  assert_exit 1 env PATH="$bin:$PATH" FIGMA_ACCESS_TOKEN=figd_x bash "$HARNESS" figma
+  assert_exit 2 env PATH="$bin:$PATH" FIGMA_ACCESS_TOKEN=figd_x bash "$HARNESS" figma nothing
+}
+
+# ── loop 트리거 ─────────────────────────────────────────────────────
+# fake_loop_claude <출력> → 가짜 claude. 호출되면 그 디렉터리에 .called 와 stdin(prompt) 을 남긴다.
+fake_loop_claude() {
+  local dir
+  dir="$(mktemp -d)"
+  printf '#!/usr/bin/env bash\ntouch "%s/.called"\nprintf "%%s\\n" "$@" > "%s/args"\ncat > "%s/prompt"\necho "%s"\n' "$dir" "$dir" "$dir" "$1" > "$dir/claude"
+  chmod +x "$dir/claude"
+  printf '%s\n' "$dir"
+}
+
+test_loop_run_skips_model_when_nothing_pending() {
+  local bin
+  bin="$(fake_loop_claude done)"
+  assert_exit 0 env PATH="$bin:$PATH" bash "$HARNESS" loop run
+  assert_eq "$(test -e "$bin/.called" && echo called || echo skipped)" "skipped" "(할 일이 없으면 토큰 0)"
+}
+
+test_loop_run_skips_model_when_preflight_fails() {
+  add_feature a "첫째" 'true'
+  echo stray > stray.txt
+  local bin
+  bin="$(fake_loop_claude done)"
+  assert_exit 1 env PATH="$bin:$PATH" bash "$HARNESS" loop run
+  assert_eq "$(test -e "$bin/.called" && echo called || echo skipped)" "skipped"
+}
+
+test_loop_run_invokes_headless_claude_with_workflow() {
+  add_feature a "첫째" 'true'
+  local bin
+  bin="$(fake_loop_claude '{"stopReason":"all-done"}')"
+  assert_exit 0 env PATH="$bin:$PATH" bash "$HARNESS" loop run --max 5 --parallel 2 --plugin-dir /opt/harness
+  assert_contains "$(cat "$bin/prompt")" '"scriptPath": "'"$(pwd -P)"'/.harness/bin/feature-loop.js"'
+  assert_contains "$(cat "$bin/prompt")" '{"maxIterations":5,"parallel":2}'
+  assert_contains "$(paste -sd ' ' "$bin/args")" "-p --output-format text --permission-mode acceptEdits"
+  assert_contains "$(paste -sd ' ' "$bin/args")" "--plugin-dir /opt/harness"
+  assert_eq "$(ls .harness/runs/*.log | wc -l | tr -d ' ')" "1"
+  assert_eq "$(jq -r 'select(.event == "loop-run") | .exitCode' .harness/trace.jsonl)" "0"
+  assert_eq "$(test -e .harness/loop.lock && echo left || echo released)" "released"
+}
+
+test_loop_run_refuses_second_run_while_locked() {
+  add_feature a "첫째" 'true'
+  sleep 30 & local holder=$!
+  echo "$holder" > .harness/loop.lock
+  local bin
+  bin="$(fake_loop_claude done)"
+  assert_exit 4 env PATH="$bin:$PATH" bash "$HARNESS" loop run
+  kill "$holder" 2>/dev/null; wait "$holder" 2>/dev/null
+  assert_exit 0 env PATH="$bin:$PATH" bash "$HARNESS" loop run
+}
+
+test_loop_schedule_prints_cron_line_only() {
+  local out
+  out="$(h loop schedule '*/30 * * * *')"
+  assert_contains "$out" "*/30 * * * * cd "
+  assert_contains "$out" "loop run >>"
+  assert_eq "$(git status --porcelain)" ""
+}
+
 # ── 훅 ──────────────────────────────────────────────────────────────
 hook_input() { jq -cn --arg p "$1" '{tool_input: {file_path: $p}}'; }
 
@@ -605,6 +772,21 @@ test_hook_pre_edit_allows_source() {
   local out
   out="$(hook_input "$PWD/src/math.js" | CLAUDE_PROJECT_DIR="$PWD" h hook pre-edit)"
   assert_eq "$out" ""
+}
+
+test_hook_pre_edit_is_silent_without_governing_map() {
+  assert_eq "$(hook_input "$PWD/src/math.js" | CLAUDE_PROJECT_DIR="$PWD" h hook pre-edit)" ""
+}
+
+test_hook_pre_edit_points_to_governing_docs() {
+  jq '.governingDoc = {map: [{globs: ["src/pay*"], docs: ["docs/PAY.md"]}, {globs: ["src/*"], docs: ["docs/CORE.md"]}],
+                       alwaysForExtension: {js: ["AGENTS.md"]}}' .harness/project.json > p && mv p .harness/project.json
+  local out
+  out="$(hook_input "$PWD/src/payment.js" | CLAUDE_PROJECT_DIR="$PWD" h hook pre-edit)"
+  assert_eq "$(jq -r .hookSpecificOutput.additionalContext <<<"$out" | grep -o 'docs/PAY.md · AGENTS.md')" "docs/PAY.md · AGENTS.md" "(첫 매치 + 확장자 문서)"
+  assert_eq "$(jq -r '.hookSpecificOutput.permissionDecision // "none"' <<<"$out")" "none" "(막지 않는다)"
+  out="$(hook_input "$PWD/src/math.js" | CLAUDE_PROJECT_DIR="$PWD" h hook pre-edit)"
+  assert_contains "$(jq -r .hookSpecificOutput.additionalContext <<<"$out")" "docs/CORE.md"
 }
 
 test_hook_post_edit_feeds_back_stub() {

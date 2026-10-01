@@ -14,6 +14,7 @@ set -euo pipefail
 source "$HARNESS_HOME/lib/common.sh"
 source "$HARNESS_HOME/lib/features.sh"
 source "$HARNESS_HOME/lib/shim.sh"
+source "$HARNESS_HOME/lib/governing.sh"
 
 EVENT="${1:-}"
 HOOK_INPUT="$(cat 2>/dev/null || true)"
@@ -44,6 +45,7 @@ progress_block() {
 on_session() {
   local context
   ensure_shim || true   # 새로 clone 한 저장소에도 스킬이 쓸 shim 을 둔다 (토큰 0, 셸에서 처리)
+  ensure_workflow_copy  # 스킬이 Workflow 도구에 넘길 사본 (작업 디렉터리 안이어야 한다)
   context="$(printf '🧭 하네스\n%s\n%s\n' "$(features_summary)" "$(progress_block)")"
   context="$context
 기능 원장은 직접 편집하지 않는다. 추가는 .harness/bin/harness feature add, 통과 판정은 harness 가 한다."
@@ -56,9 +58,18 @@ on_pre_edit() {
   target="$(edited_file)"
   [[ -z "$target" ]] && pass_silently
   ledger="$(canonical_path "$(features_file)")"
-  [[ "$(canonical_path "$target")" == "$ledger" ]] || pass_silently
+  [[ "$(canonical_path "$target")" == "$ledger" ]] || { point_to_governing_docs "$target"; return; }
   jq -cn --arg reason "기능 원장($(cfg '.state.featuresFile'))은 직접 편집할 수 없다. 기능 추가는 '.harness/bin/harness feature add --id ID --desc 설명 --acceptance 명령', 통과 판정은 'harness feature verify ID' 가 한다." \
     '{hookSpecificOutput: {hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: $reason}}'
+}
+
+# 막지 않는다. 지배 문서가 설정돼 있으면 한 줄로 알려 줄 뿐이다.
+point_to_governing_docs() {
+  local docs
+  docs="$(governing_docs_for "$(relative_to_project "$1")" | paste -sd ',' - | sed 's/,/ · /g')"
+  [[ -z "$docs" ]] && pass_silently
+  jq -cn --arg ctx "📐 이 파일을 지배하는 설계 문서: $docs — 통째로 읽지 말고 관련 절만 찾아 읽는다." \
+    '{hookSpecificOutput: {hookEventName: "PreToolUse", additionalContext: $ctx}}'
 }
 
 # ── PostToolUse ─────────────────────────────────────────────────────

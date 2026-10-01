@@ -81,6 +81,8 @@ test -f .harness/project.json && test -x .harness/bin/harness && echo plugged ||
    .harness/bin/harness path workflow
    ```
    `Workflow({ scriptPath: "<위 출력>", args: { maxIterations: 20 } })`
+   경로는 프로젝트 안의 사본이다. 원본 경로로 바꾸지 않는다(작업 디렉터리 밖이라 거부된다).
+   사용자가 "병렬로" 라고 하면 `args.parallel` 에 동시 구현 수(2~4)를 넣는다.
 3. 끝나면 결과를 요약한다: 통과, 판단 필요(질문 그대로), 승인 대기, 막힘(이유 포함), 남은 기능, MCP 제안.
    판단 필요가 있으면 질문을 먼저 보여 주고 답을 받는다.
 

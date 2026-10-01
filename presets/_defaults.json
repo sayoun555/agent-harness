@@ -28,7 +28,8 @@
     "secretPattern": "(password|passwd|secret|api[_]?key|access[_]?key|private[_]?key|client[_]?secret|token)[[:space:]]*[:=][[:space:]]*[\"'][^\"']{8,}[\"']",
     "secretExcludePattern": "\\$\\{|process\\.env|import\\.meta|getenv|os\\.environ|changeme|placeholder|example|your[_-]|xxxx|redacted|dummy|sample",
     "softMarkerPattern": "(//|#|/\\*|\\*)[[:space:]]*(임시|추후|일단)",
-    "_about": "stubMarkerPattern 은 강한 신호라 차단한다. softMarkerPattern(임시·추후·일단)은 '현재는 이렇게 동작한다'는 설명일 수도 있는 약한 신호라 경고만 한다."
+    "_about": "stubMarkerPattern 은 강한 신호라 차단한다. softMarkerPattern(임시·추후·일단)은 '현재는 이렇게 동작한다'는 설명일 수도 있는 약한 신호라 경고만 한다.",
+    "hardcodePatterns": []
   },
   "testGuard": {
     "_about": "테스트 약화 감시. 합계가 줄면 실패(루프 게이트), 파일별 감소는 경고만(정당한 이동·리팩터를 막지 않기 위해).",
@@ -47,11 +48,21 @@
     "traceFile": ".harness/trace.jsonl"
   },
   "loop": {
-    "_about": "maxAttempts: 기능 하나의 최대 시도. repeatLimit: 같은 실패가 연속 이 횟수면 막힘. maxIterations: 루프 한 번의 최대 바퀴.",
+    "_about": "maxAttempts: 기능 하나의 최대 시도. repeatLimit: 같은 실패가 연속 이 횟수면 막힘. maxIterations: 루프 한 번의 최대 바퀴. parallel: 한 바퀴에 동시에 구현할 기능 수(1 이면 순차). 2 이상이면 구현만 워크트리에서 병렬, 게이트·검증·기록은 하나씩.",
     "maxAttempts": 3,
     "repeatLimit": 2,
     "maxIterations": 20,
-    "failureTailLines": 40
+    "failureTailLines": 40,
+    "parallel": 1,
+    "headless": {
+      "_about": "harness loop run 이 headless claude 에 넘기는 인자. 사람이 없으니 권한 확인 없이 돌 도구만 연다. CI 같은 격리된 러너가 아니면 넓히지 않는다.",
+      "claudeArgs": [
+        "--permission-mode",
+        "acceptEdits",
+        "--allowedTools",
+        "Bash,Read,Edit,Write,Glob,Grep,Workflow,Agent"
+      ]
+    }
   },
   "approval": {
     "_about": "이 글롭에 걸리는 파일을 바꾼 기능은 자동 커밋하지 않고 사람 승인을 기다린다.",
@@ -70,5 +81,17 @@
       "common.md"
     ],
     "docsDir": "docs/design"
+  },
+  "governingDoc": {
+    "_about": "편집 직전에 지배 설계 문서를 알려 준다. 기본은 꺼져 있다(파일럿에서 정확도 효과 ≈0). 예: map: [{globs: [\"*controller*\"], docs: [\"docs/API.md\"]}], alwaysForExtension: {java: [\"AGENTS.md\"]}",
+    "map": [],
+    "alwaysForExtension": {}
+  },
+  "figma": {
+    "_about": "Figma 시각 충실도 렌즈(harness figma). UI 프로젝트만. components 가 비면 꺼져 있다. 토큰은 환경 변수 FIGMA_ACCESS_TOKEN.",
+    "fileKey": "",
+    "profile": "component/strict",
+    "outDir": ".harness/figma",
+    "components": []
   }
 }

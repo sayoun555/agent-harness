@@ -2,7 +2,7 @@
 #
 # harness init — 이 프로젝트에 하네스를 끼운다. 여러 번 실행해도 안전하다(있는 파일은 건드리지 않음).
 #
-#   harness init [--preset 이름] [--no-plugin] [--no-git-hooks] [--ci] [--codex]
+#   harness init [--preset 이름] [--no-plugin] [--no-git-hooks] [--ci] [--ci-loop] [--codex]
 #
 #   만드는 것
 #     .harness/project.json    프로젝트 설정 (프리셋 + 덮어쓸 값)          ← 커밋
@@ -11,6 +11,7 @@
 #     .claude/settings.json    이 프로젝트에서만 플러그인을 켠다 (--no-plugin 으로 끔)  ← 커밋
 #     git core.hooksPath       pre-commit·pre-push 게이트 (--no-git-hooks 로 끔)
 #     .github/workflows/harness-gate.yml   CI 백스톱 (--ci)
+#     .github/workflows/harness-loop.yml   일정·원장 변경 때 루프를 돌려 PR 로 (--ci-loop)
 #     .codex/hooks.json        Codex 어댑터 (--codex)
 #
 set -euo pipefail
@@ -27,6 +28,7 @@ PRESET=""
 WANT_PLUGIN=1
 WANT_GIT_HOOKS=1
 WANT_CI=0
+WANT_CI_LOOP=0
 WANT_CODEX=0
 
 parse_args() {
@@ -36,6 +38,7 @@ parse_args() {
       --no-plugin)    WANT_PLUGIN=0 ;;
       --no-git-hooks) WANT_GIT_HOOKS=0 ;;
       --ci)           WANT_CI=1 ;;
+      --ci-loop)      WANT_CI_LOOP=1 ;;
       --codex)        WANT_CODEX=1 ;;
       *)              die "$EXIT_USAGE" "알 수 없는 옵션: $1" ;;
     esac
@@ -126,6 +129,12 @@ install_ci() {
     "$(cat "$HARNESS_HOME/templates/harness-gate.yml")" ".github/workflows/harness-gate.yml (HARNESS_REPO 변수를 설정할 것)"
 }
 
+install_ci_loop() {
+  [[ "$WANT_CI_LOOP" -eq 1 ]] || return 0
+  write_if_absent "$PROJECT_ROOT/.github/workflows/harness-loop.yml" \
+    "$(cat "$HARNESS_HOME/templates/harness-loop.yml")" ".github/workflows/harness-loop.yml (ANTHROPIC_API_KEY 비밀과 HARNESS_REPO 변수를 설정할 것)"
+}
+
 install_codex_adapter() {
   [[ "$WANT_CODEX" -eq 1 ]] || return 0
   write_if_absent "$PROJECT_ROOT/.codex/hooks.json" \
@@ -158,10 +167,11 @@ main() {
   create_project_config
   create_feature_ledger
   create_shim
-  ensure_gitignored ".harness/bin/" ".harness/trace.jsonl" "$(jq -r '.state.progressFile' "$DEFAULTS_FILE")"
+  ensure_gitignored ".harness/bin/" ".harness/trace.jsonl" ".harness/figma/" ".harness/runs/" ".harness/loop.lock" "$(jq -r '.state.progressFile' "$DEFAULTS_FILE")"
   enable_plugin_for_project
   install_git_hooks
   install_ci
+  install_ci_loop
   install_codex_adapter
   report_mcp
   print_next_steps

@@ -10,13 +10,15 @@
 | 부품 | 하는 일 | 차단 여부 |
 |---|---|---|
 | `check` | 강한 stub 마커·하드코딩 시크릿 | 차단 |
-| `check` | 약한 마커(임시·추후·일단)·파일 크기 | 경고 |
+| `check` | 약한 마커(임시·추후·일단)·파일 크기·하드코딩 값(프리셋 패턴) | 경고 |
 | `test-guard` | 테스트 케이스·assertion 합계 감소, skip 증가 | 차단 (파일별 감소는 경고) |
 | `feature` | 기능 원장. 통과 판정은 하네스가 acceptance 를 실행해서만 기록 | — |
 | `risk` | 위험 파일(결제·인증 등) 변경 시 자동 커밋 대신 사람 승인 | 승인 대기 |
 | `review` | 스택 기준·footgun 으로 의미 적대자 컨텍스트 생성 | 루프에서 반려 |
 | `trace` | 노드마다 한 줄 JSONL. 반복 감지·비용·부품 빼 보기 실험의 원천 | — |
-| `feature-loop` | 위 부품을 잇는 제한 루프 워크플로우 | — |
+| `feature-loop` | 위 부품을 잇는 제한 루프 워크플로우. 순차 또는 병렬 | — |
+| `loop` | 사람 없이 루프 실행(할 일이 없으면 토큰 0), cron 줄 출력, GitHub 트리거 템플릿 | — |
+| `figma` | 렌더된 컴포넌트를 Figma 디자인과 측정 비교 (UI 전용, 꺼져 있음) | 미달이면 실패 |
 
 ## 설치
 
@@ -65,6 +67,24 @@ curl -fsSL https://raw.githubusercontent.com/sayoun555/agent-harness/main/instal
 
 되돌리기 어려운 결정(스키마·외부 API 계약·인증·공개 URL)은 에이전트가 정하지 않고 사람에게 묻는다.
 기준은 초안이다. 우선순위와 적용 조건은 프로젝트 소유자가 고쳐 확정한다.
+
+## 트리거와 병렬
+
+**트리거.** 사람이 없을 때 루프를 돌린다. 모델을 부르기 전에 사전 점검과 할 일을 먼저 보고, 실패하거나 할 일이 없으면 토큰을 쓰지 않고 끝난다. 이미 실행 중이면 두 번째는 시작하지 않는다.
+
+```bash
+.harness/bin/harness loop run --max 10        # 지금 한 번 (headless claude)
+.harness/bin/harness loop schedule '0 3 * * *' # 로컬 cron 에 넣을 줄 (cron 은 직접 넣는다)
+harness init --ci-loop                         # GitHub: 매일·원장 변경 때 돌려 PR 로 올림
+```
+
+GitHub 트리거는 main 에 직접 커밋하지 않고 PR 을 연다. 사람이 PR 을 보고 병합하는 것이 마지막 게이트다.
+
+**병렬.** `loop.parallel` 을 2 이상으로 두면 한 바퀴에 기능 여러 개를 각자 git 워크트리에서 동시에 구현한다. 가져오기·게이트·검증·기록은 하나씩 한다. 같은 곳을 고친 두 기능이 충돌하면 실패로 기록되고, 다음 시도에서 최신 HEAD 위에 다시 구현한다. 서로 독립적인 기능이 많을 때만 이득이다. 기본은 1(순차)이다.
+
+**선택 기능.**
+- **설계 문서 라우팅**: `governingDoc.map` 을 채우면, 편집 직전에 그 파일을 지배하는 설계 문서를 알려 준다. 막지 않는다. 기본은 꺼져 있다.
+- **Figma 렌즈**: `figma.components` 를 채우면 `harness figma` 가 렌더 결과를 디자인과 비교한다. UIMatch 와 `FIGMA_ACCESS_TOKEN` 이 필요하다. 없으면 안내만 하고 통과한다.
 
 ## MCP
 
@@ -115,13 +135,14 @@ curl -fsSL https://raw.githubusercontent.com/sayoun555/agent-harness/main/instal
 ## 테스트
 
 ```bash
-bash tests/run.sh              # 결정론 부품 62개
-node tests/workflow-sim.mjs    # 루프 그래프: LLM 만 가짜, 하네스 명령은 실제 실행
+bash tests/run.sh                     # 결정론 부품 79개
+node tests/workflow-sim.mjs           # 루프 그래프: LLM 만 가짜, 하네스 명령은 실제 실행
+node tests/workflow-sim-parallel.mjs  # 병렬 분기: 실제 git 워크트리, 충돌 포함
 ```
 
 ## 알려진 한계
 
-- `feature-loop` 는 LLM 을 가짜로 바꾼 시뮬레이션으로만 검증했다. 실제 모델로 끝까지 돌린 기록은 아직 없다.
+- 실제 모델로는 작은 기능 두 개(순차, headless 트리거)만 돌려 봤다. 규모 있는 기능·병렬 모드·GitHub 트리거는 시뮬레이션과 템플릿 검사까지만 했다.
 - 결정론 노드는 에이전트가 명령을 실행하고 결과를 전달한다. 전달이 틀려도 원장이 기준이지만, 루프의 분기 판단은 그 전달에 기댄다.
 - 에이전트가 `jq` 로 원장을 직접 바꾸는 것까지는 막지 않는다. `feature audit` 가 acceptance 를 다시 돌려 거짓 통과를 되돌린다.
-- 파일별 설계 문서 라우팅과 Figma 시각 비교 렌즈는 아직 없다.
+- Figma 렌즈는 가짜 엔진으로 인자와 판정만 확인했다. 실제 Figma 파일과 비교해 보지는 않았다.
