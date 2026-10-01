@@ -14,13 +14,19 @@
 | `test-guard` | 테스트 케이스·assertion 합계 감소, skip 증가 | 차단 (파일별 감소는 경고) |
 | `feature` | 기능 원장. 통과 판정은 하네스가 acceptance 를 실행해서만 기록 | — |
 | `risk` | 위험 파일(결제·인증 등) 변경 시 자동 커밋 대신 사람 승인 | 승인 대기 |
+| `design` | 설계 기준 · 설계 문서 양식 · 문서 검사 · 검사를 통과한 설계만 원장에 | 검사 실패면 원장에 안 들어감 |
 | `review` | 스택 기준·footgun 으로 의미 적대자 컨텍스트 생성 | 루프에서 반려 |
 | `trace` | 노드마다 한 줄 JSONL. 반복 감지·비용·부품 빼 보기 실험의 원천 | — |
 | `feature-loop` | 위 부품을 잇는 제한 루프 워크플로우. 순차 또는 병렬 | — |
 | `loop` | 사람 없이 루프 실행(할 일이 없으면 토큰 0), cron 줄 출력, GitHub 트리거 템플릿 | — |
+| `mcp` | 프리셋이 권하는 MCP 의 연결 여부 확인 (설치하지 않음) | — |
 | `figma` | 렌더된 컴포넌트를 Figma 디자인과 측정 비교 (UI 전용, 꺼져 있음) | 미달이면 실패 |
 
+아래 명령의 `harness` 는 프로젝트 안의 `.harness/bin/harness` 다. 설치하면 생긴다.
+
 ## 설치
+
+필요한 것: `bash`, `git`, `jq`, Claude Code. macOS 기본 bash 3.2 에서도 돈다.
 
 쓰려는 프로젝트 폴더에서 한 줄. 다시 실행하면 업데이트다.
 
@@ -41,7 +47,7 @@ curl -fsSL https://raw.githubusercontent.com/sayoun555/agent-harness/main/instal
 |---|---|
 | "이 코드 완성품으로 만들어 줘", "설계부터 해 줘" | 설계 기준으로 설계 문서 작성 → 사람이 정할 결정을 한꺼번에 질문 → 검사·독립 검토 → 확인하면 원장에 추가 |
 | "PLAN.md 보고 기능 목록 만들어 줘" | 기능과 acceptance 명령을 표로 제안 → 확인하면 원장에 추가하고 원장만 커밋 |
-| "루프 돌려 줘" | 사전 점검 → feature-loop 실행 → 통과·승인 대기·막힘 요약 |
+| "루프 돌려 줘" | 사전 점검 → feature-loop 실행 → 통과·판단 필요·승인 대기·막힘·MCP 제안 요약 |
 | "어디까지 됐어", "막힌 거 뭐 있어" | 원장 상태와 막힌 이유 |
 | "캐싱은 Redis로 해" | 판단을 기다리던 기능에 결정을 붙여 다시 대기열에 |
 | "결제 기능 승인해 줘" | 보관 브랜치의 diff 를 보여 주고 승인 |
@@ -75,7 +81,7 @@ curl -fsSL https://raw.githubusercontent.com/sayoun555/agent-harness/main/instal
 ```bash
 .harness/bin/harness loop run --max 10        # 지금 한 번 (headless claude)
 .harness/bin/harness loop schedule '0 3 * * *' # 로컬 cron 에 넣을 줄 (cron 은 직접 넣는다)
-harness init --ci-loop                         # GitHub: 매일·원장 변경 때 돌려 PR 로 올림
+.harness/bin/harness init --ci-loop            # GitHub: 매일·원장 변경 때 돌려 PR 로 올림
 ```
 
 GitHub 트리거는 main 에 직접 커밋하지 않고 PR 을 연다. 사람이 PR 을 보고 병합하는 것이 마지막 게이트다.
@@ -123,8 +129,8 @@ GitHub 트리거는 main 에 직접 커밋하지 않고 PR 을 연다. 사람이
 
 - **git 훅**: `init` 이 `core.hooksPath` 를 하네스의 `git-hooks/` 로 건다. 끄려면 `--no-git-hooks`.
 - **`--no-verify` 차단**: `export PATH="$HOME/.agent-harness/guard/bin:$PATH"`
-- **Codex**: `harness init --codex` 가 `.codex/hooks.json` 을 만든다.
-- **CI**: `harness init --ci` 가 워크플로우를 만든다. 저장소 변수 `HARNESS_REPO`·`HARNESS_REF` 로 이 하네스를 버전 고정 참조한다.
+- **Codex**: `.harness/bin/harness init --codex` 가 `.codex/hooks.json` 을 만든다.
+- **CI**: `.harness/bin/harness init --ci` 가 워크플로우를 만든다. 저장소 변수 `HARNESS_REPO`·`HARNESS_REF` 로 이 하네스를 버전 고정 참조한다.
 - **명령으로 직접**: `.harness/bin/harness --help`
 
 ## 근거
@@ -146,3 +152,5 @@ node tests/workflow-sim-parallel.mjs  # 병렬 분기: 실제 git 워크트리, 
 - 결정론 노드는 에이전트가 명령을 실행하고 결과를 전달한다. 전달이 틀려도 원장이 기준이지만, 루프의 분기 판단은 그 전달에 기댄다.
 - 에이전트가 `jq` 로 원장을 직접 바꾸는 것까지는 막지 않는다. `feature audit` 가 acceptance 를 다시 돌려 거짓 통과를 되돌린다.
 - Figma 렌즈는 가짜 엔진으로 인자와 판정만 확인했다. 실제 Figma 파일과 비교해 보지는 않았다.
+- Codex 어댑터, CI 게이트 템플릿, GitHub 루프 트리거 템플릿은 실제 환경에서 돌려 보지 않았다. 문법 검사와 단위 테스트까지다.
+- 설계 기준(C·F·B)은 초안이다. 이 저장소를 쓰는 사람이 우선순위와 적용 조건을 고쳐 확정한다.
