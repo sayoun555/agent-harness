@@ -12,7 +12,7 @@
   },
   "rules": {
     "maxFileLines": 200,
-    "stubMarkerPattern": "(//|/\\*|\\*)[[:space:]]*(TODO|FIXME|XXX|HACK|stub|STUB|placeholder|미구현)|throw new UnsupportedOperationException|throw new RuntimeException\\(\"Not implemented",
+    "stubMarkerPattern": "(//|/\\*|\\*)[[:space:]]*(TODO|FIXME|XXX|HACK|stub|STUB|placeholder|미구현)|throw new UnsupportedOperationException|(^|[^A-Za-z0-9_.])TODO\\(|NotImplementedError|[Nn]ot[ _-]?[Ii]mplemented",
     "hardcodePatterns": [
       {
         "id": "hardcoded-url",

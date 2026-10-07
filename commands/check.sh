@@ -13,35 +13,17 @@
 #
 set -euo pipefail
 source "$HARNESS_HOME/lib/common.sh"
+source "$HARNESS_HOME/lib/source.sh"
 require_commands git jq
 project_is_plugged_in || { info "harness check: 이 프로젝트에 하네스가 없다 — 건너뜀"; exit 0; }
 cd "$PROJECT_ROOT"
 
-EXTENSIONS_RE="$(cfg_lines '.source.extensions' | paste -sd '|' -)"
-TEST_PATH_RE="$(cfg '.source.testPathPattern')"
-SOURCE_ROOT="$(cfg '.source.root')"
 STUB_RE="$(cfg '.rules.stubMarkerPattern')"
 SOFT_MARKER_RE="$(cfg '.rules.softMarkerPattern')"
 SECRET_RE="$(cfg '.rules.secretPattern')"
 SECRET_EXCLUDE_RE="$(cfg '.rules.secretExcludePattern')"
 MAX_FILE_LINES="$(cfg '.rules.maxFileLines')"
 MAX_PUBLIC_METHODS="$(cfg '.rules.maxPublicMethods')"
-
-has_checked_extension() { [[ "${1##*.}" =~ ^($EXTENSIONS_RE)$ ]]; }
-is_test_path() { [[ -n "$TEST_PATH_RE" && "$1" =~ $TEST_PATH_RE ]]; }
-is_under_source_root() { [[ -z "$SOURCE_ROOT" || "$1" == "$SOURCE_ROOT"/* ]]; }
-
-matches_main_globs() {
-  local globs=()
-  while IFS= read -r glob; do [[ -n "$glob" ]] && globs+=("$glob"); done < <(cfg_lines '.source.mainGlobs')
-  [[ ${#globs[@]} -eq 0 ]] && return 0
-  path_matches_any "$1" "${globs[@]}"
-}
-
-is_checked_source() {
-  [[ -f "$1" ]] && has_checked_extension "$1" && ! is_test_path "$1" \
-    && is_under_source_root "$1" && matches_main_globs "$1"
-}
 
 candidate_files() {
   case "${1:-}" in

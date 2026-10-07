@@ -46,11 +46,33 @@ parse_args() {
   done
 }
 
+# ── 스택 감지 ───────────────────────────────────────────────────────
+# 빌드 파일 이름만 보면 Android 와 Spring 이 둘 다 Gradle 이라 구분되지 않는다. 내용을 본다.
+project_has_file() {  # project_has_file <이름> — 깊이 4 안에 그 이름의 파일이 있나
+  find "$PROJECT_ROOT" -maxdepth 4 -name "$1" -not -path '*/node_modules/*' -not -path '*/.git/*' -not -path '*/build/*' \
+    -print 2>/dev/null | grep -q .
+}
+
+build_files_mention() {  # build_files_mention <정규식> — 루트·모듈의 Gradle·Maven 파일
+  local file
+  for file in "$PROJECT_ROOT"/build.gradle* "$PROJECT_ROOT"/*/build.gradle* "$PROJECT_ROOT"/pom.xml \
+              "$PROJECT_ROOT"/gradle/libs.versions.toml; do
+    [[ -f "$file" ]] && grep -qE "$1" "$file" && return 0
+  done
+  return 1
+}
+
+package_json_depends_on() {  # package_json_depends_on <패키지>
+  [[ -f "$PROJECT_ROOT/package.json" ]] \
+    && jq -e --arg p "$1" '((.dependencies // {}) + (.devDependencies // {})) | has($p)' "$PROJECT_ROOT/package.json" >/dev/null 2>&1
+}
+
 detect_preset() {
-  if [[ -f "$PROJECT_ROOT/build.gradle.kts" || -f "$PROJECT_ROOT/build.gradle" \
-        || -f "$PROJECT_ROOT/backend/build.gradle.kts" || -f "$PROJECT_ROOT/pom.xml" ]]; then
+  if project_has_file AndroidManifest.xml || build_files_mention 'com\.android\.(application|library)'; then
+    echo android
+  elif build_files_mention 'org\.springframework\.boot'; then
     echo spring
-  elif [[ -f "$PROJECT_ROOT/package.json" ]] && jq -e '(.dependencies // {}) | has("next")' "$PROJECT_ROOT/package.json" >/dev/null 2>&1; then
+  elif package_json_depends_on next; then
     echo nextjs
   else
     echo generic

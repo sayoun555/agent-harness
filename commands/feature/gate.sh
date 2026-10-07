@@ -13,6 +13,15 @@ fail_gate() {  # fail_gate <단계> → 1
   return 1
 }
 
+# rules.sizePolicy 가 block-growth 면, 이번 변경으로 한도를 넘은 파일이 게이트를 막는다 (기본 warn: 검증 컨텍스트에만).
+size_blocks_gate() {
+  local grown
+  [[ "$(cfg '.rules.sizePolicy')" == "block-growth" ]] || return 1
+  grown="$(grown_oversized_files ${SCOPE[@]+"${SCOPE[@]}"})"
+  [[ -z "$grown" ]] && return 1
+  STEP_OUTPUT="$(describe_grown_oversized <<<"$grown")"
+}
+
 # 빌드·테스트는 빌드 잠금 안에서 돈다. 같은 트리의 다른 에이전트와 빌드 도구가 충돌하지 않게.
 run_locked_step() { run_step "bash \"$HARNESS_HOME/commands/lock.sh\" run -- bash -c $(printf '%q' "$1")"; }
 
@@ -24,6 +33,7 @@ run_gates() {  # run_gates <id> → 0 이면 모두 통과
   guard="bash \"$HARNESS_HOME/commands/test-guard.sh\""
   [[ ${#SCOPE[@]} -gt 0 ]] && guard="$guard -- $(printf '%q ' "${SCOPE[@]}")"
 
+  if size_blocks_gate; then fail_gate "크기 초과"; return; fi
   if [[ -n "$compile" ]] && ! run_locked_step "$compile"; then fail_gate "컴파일"; return; fi
   run_step "$guard" || { fail_gate "테스트 약화"; return; }
   run_locked_step "$acceptance" || { fail_gate "acceptance"; return; }

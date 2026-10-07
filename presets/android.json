@@ -1,0 +1,112 @@
+{
+  "_about": "Android · Kotlin (Gradle). 코드 기준은 공통(Q) + Android(A). 상태는 단방향(StateFlow), 코루틴은 구조화된 범위, 하드웨어 콜백은 한 경계.",
+  "source": {
+    "extensions": [
+      "kt",
+      "java"
+    ],
+    "testPathPattern": "(^|/)(test|tests|androidTest|testDebug|testRelease|__tests__)/|[._-](test|spec)\\.[a-z]+$|Test\\.(kt|java)$"
+  },
+  "build": {
+    "compileCommand": "./gradlew compileDebugKotlin --console=plain -q",
+    "testCommand": "./gradlew testDebugUnitTest --console=plain -q"
+  },
+  "rules": {
+    "maxFileLines": 300,
+    "maxPublicMethods": "",
+    "hardcodePatterns": [
+      {
+        "id": "compose-literal-text",
+        "pattern": "Text\\([[:space:]]*\"[^\"]+\"",
+        "message": "화면 문자열 하드코딩 — strings.xml 리소스로"
+      },
+      {
+        "id": "literal-color",
+        "pattern": "Color\\(0x[0-9A-Fa-f]{8}\\)",
+        "message": "하드코딩된 색 — 테마 색으로"
+      },
+      {
+        "id": "global-scope",
+        "pattern": "GlobalScope\\.",
+        "message": "GlobalScope — 수명 있는 범위로 (A2)"
+      },
+      {
+        "id": "run-blocking",
+        "pattern": "runBlocking[[:space:]]*[({]",
+        "message": "runBlocking — 테스트 밖에서는 쓰지 않는다 (A2)"
+      }
+    ],
+    "forbiddenImports": [
+      {
+        "id": "ui-imports-data-source",
+        "files": "*/ui/*",
+        "pattern": "^import[[:space:]]+([A-Za-z0-9_]+\\.)+(data\\.(remote|local|source)|datasource|ble|bluetooth)\\.",
+        "message": "UI 가 데이터 소스·하드웨어 계층을 직접 import 한다 — Repository·ViewModel 을 거친다 (A4, A5)",
+        "severity": "warn"
+      },
+      {
+        "id": "domain-imports-android",
+        "files": "*/domain/*",
+        "pattern": "^import[[:space:]]+android\\.",
+        "message": "도메인이 Android 프레임워크에 의존한다",
+        "severity": "warn"
+      }
+    ]
+  },
+  "testGuard": {
+    "testCasePattern": "@Test\\b",
+    "assertionPattern": "\\b(assert[A-Z][A-Za-z]*|assertThat|verify|coVerify)\\(|[[:space:]]should(Be|Equal|Contain|Throw)[A-Za-z]*[[:space:](]",
+    "skipPattern": "@(Ignore|Disabled)\\b"
+  },
+  "review": {
+    "criteria": [
+      "android-code.md"
+    ],
+    "guidance": [],
+    "footguns": [
+      {
+        "id": "main-thread-io",
+        "sev": "high",
+        "check": "메인 스레드에서 디스크·네트워크·BLE 블로킹 호출 — withContext(Dispatchers.IO) 로."
+      },
+      {
+        "id": "context-leak",
+        "sev": "high",
+        "check": "싱글턴·Repository·object 가 Activity·View·Fragment 를 참조 — 화면 전체 누수. Application Context 로."
+      },
+      {
+        "id": "unscoped-coroutine",
+        "sev": "high",
+        "check": "GlobalScope·범위 없는 CoroutineScope 로 시작한 코루틴 — 취소되지 않고 낡은 결과로 상태를 덮어쓴다."
+      },
+      {
+        "id": "lifecycle-unaware-collect",
+        "sev": "med",
+        "check": "UI 에서 repeatOnLifecycle·collectAsStateWithLifecycle 없이 Flow 를 모음 — 백그라운드에서도 돈다."
+      },
+      {
+        "id": "callback-thread",
+        "sev": "high",
+        "check": "BLE·센서 콜백을 받은 스레드에서 바로 상태를 고침 — 한 어댑터에서 한 스레드로 가둔다 (Q3, A5)."
+      },
+      {
+        "id": "exposed-mutable-state",
+        "sev": "med",
+        "check": "MutableStateFlow·MutableLiveData 를 밖으로 노출 — 읽기 전용 StateFlow 로."
+      }
+    ]
+  },
+  "approval": {
+    "riskGlobs": [
+      "*AndroidManifest.xml",
+      "*permission*",
+      "*Permission*",
+      "*auth*",
+      "*Auth*",
+      "*payment*",
+      "*Keystore*",
+      "*crypto*",
+      "*proguard*"
+    ]
+  }
+}

@@ -2,7 +2,7 @@
 #
 # harness review — 의미 적대자.
 #   harness review --context 기능ID   적대자에게 줄 컨텍스트만 출력 (루프 워크플로우가 쓴다, LLM 호출 없음)
-#   harness review --criteria         검증자가 판정에 쓰는 기준 파일만 출력 (구현자가 볼 수 있게)
+#   harness review --criteria         검증자가 판정에 쓰는 기준(공통 + 스택)만 출력 (구현자가 볼 수 있게)
 #   harness review [파일...]          LLM CLI(codex·claude 자동 감지)로 검토 (git 훅·Codex 용)
 #                                     파일을 안 주면 staged 파일
 #   HARNESS_REVIEW_BLOCK=1           위반 보고 시 exit 1 (기본은 보고만)
@@ -13,6 +13,8 @@ source "$HARNESS_HOME/lib/common.sh"
 source "$HARNESS_HOME/lib/cli.sh"
 source "$HARNESS_HOME/lib/features.sh"
 source "$HARNESS_HOME/lib/changes.sh"
+source "$HARNESS_HOME/lib/source.sh"
+source "$HARNESS_HOME/lib/size.sh"
 source "$HARNESS_HOME/lib/record.sh"
 source "$HARNESS_HOME/lib/design.sh"
 require_commands git jq
@@ -22,14 +24,14 @@ cd "$PROJECT_ROOT"
 # 재귀 가드: 적대자 LLM 안의 훅이 또 review 를 부르지 않게 한다.
 [[ "${HARNESS_REVIEWING:-0}" == "1" ]] && { info "review: 재귀 가드 — 건너뜀"; exit 0; }
 
-# 검증 기준 파일 (review.criteria)
+# 검증 기준 파일: 공통(review.commonCriteria, 스택과 상관없이 항상) → 스택(review.criteria)
 print_review_criteria() {
   local entry file
   while IFS= read -r entry; do
     [[ -z "$entry" ]] && continue
     file="$(criteria_file_for "$entry")"
     if [[ -f "$file" ]]; then cat "$file"; echo; else info "⚠️ 검증 기준 파일이 없다: $file"; fi
-  done < <(cfg_lines '.review.criteria')
+  done < <(cfg_lines '.review.commonCriteria'; cfg_lines '.review.criteria')
 }
 
 print_stack_criteria() {
@@ -57,6 +59,24 @@ print_feature_context() {  # print_feature_context <id>
   echo
   print_design_reference "$id"
   print_change_section "$id"
+  print_gate_warnings "$id"
+}
+
+# 바뀐 파일에 대한 check 게이트 경고(크기·메서드 수·하드코딩·금지 import·약한 마커).
+# 차단은 아니지만 구조 판단의 재료다 (공통 기준 Q5 등).
+print_gate_warnings() {  # print_gate_warnings <id>
+  local files=() file warnings grown
+  scope_of "$1"
+  while IFS= read -r file; do [[ -n "$file" ]] && files+=("$file"); done < <(changed_files ${SCOPE[@]+"${SCOPE[@]}"})
+  [[ ${#files[@]} -eq 0 ]] && return 0
+  warnings="$(bash "$HARNESS_HOME/commands/check.sh" "${files[@]}" 2>/dev/null | grep -v '^✅' | grep -v '^❌' || true)"
+  grown="$(grown_oversized_files ${SCOPE[@]+"${SCOPE[@]}"} | describe_grown_oversized)"
+  [[ -z "$warnings$grown" ]] && return 0
+  echo
+  echo "## 게이트 경고 (판단 재료 — 구조 문제인지 본다)"
+  [[ -n "$grown" ]] && { echo "이번 변경으로 크기 한도를 넘은 파일:"; sed 's/^/- /' <<<"$grown"; }
+  [[ -n "$warnings" ]] && { echo '```'; echo "$warnings"; echo '```'; }
+  return 0
 }
 
 # 기준 트리 대비 변경. 새 파일·삭제·스테이징·untracked 를 모두 담는다 (lib/changes.sh).

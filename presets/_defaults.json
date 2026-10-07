@@ -24,14 +24,17 @@
   },
   "rules": {
     "maxFileLines": 400,
-    "stubMarkerPattern": "(//|#|/\\*|\\*)[[:space:]]*(TODO|FIXME|XXX|HACK|stub|STUB|placeholder|미구현)|Not implemented",
+    "stubMarkerPattern": "(//|#|/\\*|\\*)[[:space:]]*(TODO|FIXME|XXX|HACK|stub|STUB|placeholder|미구현)|(^|[^A-Za-z0-9_.])TODO\\(|NotImplementedError|[Nn]ot[ _-]?[Ii]mplemented|unimplemented!\\(|todo!\\(",
     "secretPattern": "(password|passwd|secret|api[_]?key|access[_]?key|private[_]?key|client[_]?secret|token)[[:space:]]*[:=][[:space:]]*[\"'][^\"']{8,}[\"']",
     "secretExcludePattern": "\\$\\{|process\\.env|import\\.meta|getenv|os\\.environ|changeme|placeholder|example|your[_-]|xxxx|redacted|dummy|sample",
     "softMarkerPattern": "(//|#|/\\*|\\*)[[:space:]]*(임시|추후|일단)",
     "_about": "stubMarkerPattern 은 강한 신호라 차단한다. softMarkerPattern(임시·추후·일단)은 '현재는 이렇게 동작한다'는 설명일 수도 있는 약한 신호라 경고만 한다.",
     "hardcodePatterns": [],
     "maxPublicMethods": "",
-    "forbiddenImports": []
+    "forbiddenImports": [],
+    "sizePolicy": "warn",
+    "_sizePolicyAbout": "warn: 크기 초과는 경고와 검증 컨텍스트에만. block-growth: 새로 만들었거나 이번에 커져서 maxFileLines 를 넘은 파일이 게이트를 막는다.",
+    "_stubAbout": "주석 마커 + 언어별 stub: Kotlin TODO(), Kotlin·Python NotImplementedError, Rust todo!/unimplemented!, 'not implemented' 문구."
   },
   "testGuard": {
     "_about": "테스트 약화 감시. 합계가 줄면 실패(루프 게이트), 파일별 감소는 경고만(정당한 이동·리팩터를 막지 않기 위해).",
@@ -44,8 +47,11 @@
     "guidance": [],
     "footguns": [],
     "criteria": [],
-    "_criteriaAbout": "검증자가 코드를 판정할 때 읽는 기준 파일(design/criteria/ 의 이름이나 프로젝트 경로). 구현자에게는 내용을 주입하지 않고 볼 수 있는 명령만 알려 준다.",
-    "maxDiffLines": 800
+    "_criteriaAbout": "commonCriteria 는 스택과 상관없이 항상, criteria 는 스택 기준. 검증자가 판정할 때 읽는다(design/criteria/ 의 이름이나 프로젝트 경로). 구현자에게는 내용을 주입하지 않고 볼 수 있는 명령만 알려 준다.",
+    "maxDiffLines": 800,
+    "commonCriteria": [
+      "code-common.md"
+    ]
   },
   "state": {
     "featuresFile": ".harness/features.json",

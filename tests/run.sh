@@ -825,8 +825,13 @@ test_review_criteria_for_spring_include_code_and_design() {
   assert_contains "$out" "B2. 의존성 방향을 지킨다"
 }
 
-test_review_criteria_empty_for_generic() {
-  assert_eq "$(h review --criteria)" ""
+test_review_criteria_always_include_common_code_criteria() {
+  local out
+  out="$(h review --criteria)"
+  assert_contains "$out" "Q1. 정석으로 해결한다 — 땜빵 금지"
+  assert_contains "$out" "Q2. 상태 기계는 상태 기계로 만든다"
+  assert_contains "$out" "Q3. 동시성 전략은 하나"
+  assert_eq "$(grep -c 'K6\.' <<<"$out" || true)" "0" "(generic 에는 Spring 기준이 없다)"
 }
 
 test_review_context_carries_code_criteria() {
@@ -1002,6 +1007,80 @@ test_brief_carries_decisions_and_last_failure() {
   assert_contains "$out" "- D1 저장소 → Redis"
   assert_contains "$out" "[직전 시도 실패"
   assert_contains "$out" "구조로 해결"
+}
+
+# ── 스택 감지 ───────────────────────────────────────────────────────
+detected_preset() { rm -f .harness/project.json; h init --no-git-hooks --no-plugin 2>&1 | sed -n 's/.*(preset: \([a-z]*\)).*/\1/p' | head -1; }
+
+test_detect_android_by_manifest() {
+  mkdir -p app/src/main && echo '<manifest/>' > app/src/main/AndroidManifest.xml
+  touch build.gradle.kts
+  assert_eq "$(detected_preset)" "android" "(루트 build.gradle.kts 가 있어도 Spring 이 아니다)"
+}
+
+test_detect_android_by_gradle_plugin() {
+  echo 'plugins { id("com.android.application") }' > build.gradle.kts
+  assert_eq "$(detected_preset)" "android"
+}
+
+test_detect_spring_only_with_spring_boot_plugin() {
+  echo 'plugins { id("org.springframework.boot") version "3.3.0" }' > build.gradle.kts
+  assert_eq "$(detected_preset)" "spring"
+  echo 'plugins { kotlin("jvm") }' > build.gradle.kts
+  assert_eq "$(detected_preset)" "generic" "(Spring 이 아닌 Gradle 은 generic)"
+}
+
+# ── 언어별 stub ─────────────────────────────────────────────────────
+test_check_blocks_language_stubs() {
+  printf 'fun load(): Int = TODO()\n' > src/A.kt
+  assert_exit 1 h check src/A.kt
+  printf 'fun save() { throw NotImplementedError() }\n' > src/B.kt
+  assert_exit 1 h check src/B.kt
+  printf 'def run():\n    raise NotImplementedError\n' > src/c.py
+  assert_exit 1 h check src/c.py
+  printf 'fun ok() = myTODO(1)\nval s = "TODOS"\n' > src/D.kt
+  assert_exit 0 h check src/D.kt "(식별자 안의 TODO 는 아니다)"
+}
+
+# ── Android 기준과 크기 ─────────────────────────────────────────────
+test_android_review_criteria_include_common_and_android() {
+  jq '.preset = "android"' .harness/project.json > p && mv p .harness/project.json
+  local out
+  out="$(h review --criteria)"
+  assert_contains "$out" "Q2. 상태 기계는 상태 기계로 만든다"
+  assert_contains "$out" "A5. 하드웨어와 외부 콜백은 한 경계 안에 가둔다"
+}
+
+big_file() { local i; for ((i = 1; i <= $2; i++)); do echo "val v$i = $i"; done > "$1"; }
+
+test_review_context_reports_grown_oversized_files() {
+  jq '.rules = {maxFileLines: 10}' .harness/project.json > p && mv p .harness/project.json
+  add_feature a "에이" 'true'
+  big_file src/Big.kt 30
+  local out
+  out="$(h review --context a)"
+  assert_contains "$out" "## 게이트 경고"
+  assert_contains "$out" "src/Big.kt: 30줄 > 10 (새 파일)"
+}
+
+test_size_policy_block_growth_blocks_only_grown_files() {
+  big_file src/Old.kt 30
+  git add -A && git commit -qm "기존 큰 파일"
+  jq '.rules = {maxFileLines: 10, sizePolicy: "block-growth"}' .harness/project.json > p && mv p .harness/project.json
+  add_feature a "에이" 'true'
+  echo "// 작은 수정" > src/small.kt
+  assert_exit 0 h feature verify a "(손대지 않은 기존 큰 파일은 막지 않는다)"
+  add_feature b "비" 'true'
+  big_file src/Old.kt 31
+  assert_exit 1 h feature verify b
+  assert_eq "$(field_of b lastFailure)" "크기 초과 실패"
+}
+
+test_size_policy_warn_does_not_block() {
+  jq '.rules = {maxFileLines: 10}' .harness/project.json > p && mv p .harness/project.json
+  add_feature a "에이" 'true'
+  big_file src/Big.kt 30
+  assert_exit 0 h feature verify a
 }
 
 # ── 훅 ──────────────────────────────────────────────────────────────
