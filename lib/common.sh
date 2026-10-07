@@ -96,13 +96,12 @@ path_matches_any() {
   return 1
 }
 
-# ── 작업 트리 ───────────────────────────────────────────────────────
-# 커밋 기준(HEAD) 대비 바뀐 파일: 수정·추가·신규(untracked). 삭제는 제외.
-changed_files() {
-  {
-    git -C "$PROJECT_ROOT" diff --name-only --diff-filter=ACMR HEAD 2>/dev/null
-    git -C "$PROJECT_ROOT" ls-files --others --exclude-standard 2>/dev/null
-  } | sort -u
+# ── 운용 방식 ───────────────────────────────────────────────────────
+# loop.autoCommit 이 false 면 하네스는 커밋·브랜치를 만들지 않는다(원장만 쓴다).
+#   주의: jq 의 `false // empty` 는 비어 버리므로 cfg 로 읽지 않고 직접 비교한다.
+auto_commit_enabled() {
+  load_config
+  ! jq -e '.loop.autoCommit == false' <<<"$RESOLVED_CONFIG" >/dev/null
 }
 
 # ── JSON 파일 원자적 갱신 ────────────────────────────────────────────

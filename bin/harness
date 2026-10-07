@@ -22,6 +22,8 @@ usage() {
   figma [컴포넌트]            Figma 시각 충실도 렌즈 (UI 전용, UIMatch)
   config [-r] [jq-경로]       병합된 최종 설정
   loop <run|schedule>         사람 없이 루프 실행 (할 일 없으면 토큰 0), cron 줄 출력
+  baseline <save|show>        커밋 없이 운용할 때의 비교 기준 (git 트리, 커밋 아님)
+  lock run -- <명령>          빌드 잠금을 잡고 실행 (같은 트리 병렬)
   review [--context 기능ID | 파일...]  의미 적대자 (LLM CLI) 또는 적대자용 컨텍스트 출력
   trace [show|tail N]         루프 실행 기록
   ci                          CI 한 번에: check --all + compile + test

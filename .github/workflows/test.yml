@@ -20,3 +20,5 @@ jobs:
         run: node tests/workflow-sim.mjs
       - name: 병렬 분기 시뮬레이션
         run: node tests/workflow-sim-parallel.mjs
+      - name: 커밋 없는 운용 시뮬레이션
+        run: node tests/workflow-sim-ledger.mjs

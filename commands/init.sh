@@ -167,7 +167,8 @@ main() {
   create_project_config
   create_feature_ledger
   create_shim
-  ensure_gitignored ".harness/bin/" ".harness/trace.jsonl" ".harness/figma/" ".harness/runs/" ".harness/loop.lock" "$(jq -r '.state.progressFile' "$DEFAULTS_FILE")"
+  ensure_gitignored ".harness/bin/" ".harness/trace.jsonl" ".harness/figma/" ".harness/runs/" ".harness/loop.lock" \
+    ".harness/build.lock/" ".harness/baseline.json" ".harness/parked/" "$(jq -r '.state.progressFile' "$DEFAULTS_FILE")"
   enable_plugin_for_project
   install_git_hooks
   install_ci

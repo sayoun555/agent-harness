@@ -68,7 +68,7 @@ test -f .harness/project.json && test -x .harness/bin/harness && echo plugged ||
    다른 변경이 이미 작업 트리에 있으면 커밋하지 말고, 루프 전에 그 변경을 커밋하거나 stash 해야 한다고 알린다.
 6. `.harness/features.json` 은 Edit·Write 로 직접 고치지 않는다. 훅이 거부한다.
 
-## 2. 루프 실행 ("루프 돌려 줘")
+## 2A. 루프 실행 ("루프 돌려 줘")
 
 1. 사전 점검을 먼저 돌린다. 실패하면 문제를 그대로 보여 주고 멈춘다.
    ```bash
@@ -85,6 +85,33 @@ test -f .harness/project.json && test -x .harness/bin/harness && echo plugged ||
    사용자가 "병렬로" 라고 하면 `args.parallel` 에 동시 구현 수(2~4)를 넣는다.
 3. 끝나면 결과를 요약한다: 통과, 판단 필요(질문 그대로), 승인 대기, 막힘(이유 포함), 남은 기능, MCP 제안.
    판단 필요가 있으면 질문을 먼저 보여 주고 답을 받는다.
+
+## 2B. 루프 없이 진행 ("루프는 안 써", "하나씩 해 줘")
+
+루프를 쓰지 않아도 **구현과 검증은 기능마다 서로 다른 서브에이전트**가 한다. 메인 에이전트는 직접 구현하지 않고, 자기가 구현한 것을 자기가 검증하지 않는다.
+기능마다 아래를 차례로 한다.
+
+1. 지시문을 받아 **구현 서브에이전트**(Agent 도구)에게 그대로 준다.
+   ```bash
+   .harness/bin/harness feature brief ID
+   ```
+   구현자가 판단을 요청하면 `feature ask ID --question '질문'` 으로 남기고 다음 기능으로 간다.
+2. 결정론 게이트를 돌린다. 실패하면 1로 돌아간다(지시문에 실패 사유가 자동으로 들어간다).
+   ```bash
+   .harness/bin/harness feature verify ID
+   ```
+3. **검증 서브에이전트**를 구현자와 다른 Agent 호출로 띄운다. 프롬프트: "너는 이 기능을 구현하지 않은 독립 검증자다. `.harness/bin/harness review --context ID` 를 읽고, 기준 ID 와 함께 승인 또는 반려를 판정하라. 파일을 고치지 마라."
+4. 판정을 원장에 남긴다. 반려면 1로 돌아간다.
+   ```bash
+   .harness/bin/harness feature review ID --approve --reason '근거'
+   .harness/bin/harness feature review ID --reject --reason '기준 ID 와 이유'
+   ```
+5. 기록한다. 커밋할지는 설정(`loop.autoCommit`)이 정한다.
+   ```bash
+   .harness/bin/harness feature record ID
+   ```
+
+여러 기능을 같은 작업 트리에서 동시에 구현하면, 각 구현자가 바꾼 파일을 `feature claim ID --files a,b` 로 적은 뒤 2~5를 하나씩 한다. 빌드는 `.harness/bin/harness lock run -- <명령>` 으로 잠금을 잡는다.
 
 ## 3. 상태 ("어디까지 됐어", "막힌 거 뭐 있어")
 
@@ -104,11 +131,11 @@ test -f .harness/project.json && test -x .harness/bin/harness && echo plugged ||
 
 ## 5. 승인 ("결제 기능 승인해 줘")
 
-승인 대기 기능의 변경은 `harness/ID` 브랜치에 보관돼 있다. `riskyFiles` 와 함께 diff 를 먼저 보여 준다.
-```bash
-git diff HEAD harness/ID
-```
-사용자가 승인하면:
+승인 대기 기능의 변경은 치워서 보관돼 있다. 위치는 원장의 `parked.ref` 다.
+- 커밋으로 운용하면 브랜치: `git diff HEAD <ref>`
+- 커밋 없이 운용하면 패치 파일: 그 파일을 그대로 보여 준다
+
+`riskyFiles` 와 함께 보여 주고, 사용자가 승인하면:
 ```bash
 .harness/bin/harness feature approve ID
 ```

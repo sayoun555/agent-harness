@@ -11,6 +11,7 @@
 #
 set -euo pipefail
 source "$HARNESS_HOME/lib/common.sh"
+source "$HARNESS_HOME/lib/cli.sh"
 source "$HARNESS_HOME/lib/design.sh"
 require_commands jq
 project_is_plugged_in || die "$EXIT_CONFIG" "이 프로젝트에 하네스가 없다 (harness init)"
@@ -20,8 +21,6 @@ require_doc() {
   [[ -n "${1:-}" ]] || die "$EXIT_USAGE" "설계 문서 경로가 필요하다"
   [[ -f "$1" ]] || die "$EXIT_USAGE" "설계 문서가 없다: $1"
 }
-
-lines_to_json() { jq -Rsc 'split("\n") | map(select(length > 0))'; }
 
 cmd_new() {
   local name="${1:-}" path

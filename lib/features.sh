@@ -5,16 +5,17 @@
 # 상태 전이는 이 파일의 함수로만 일어난다. 에이전트는 원장을 직접 편집하지 못한다
 # (pre-edit 훅이 막는다). 그래서 "통과"는 하네스가 acceptance 를 실행해 본 결과로만 기록된다.
 #
-#   pending ──verify 통과──▶ verified ──commit──▶ passing
-#      ▲                        │  └─ 위험 파일 ─▶ awaiting-approval ──approve──▶ passing
-#      └──── 실패(시도 < 한도) ──┘
+#   pending ─verify─▶ verified ─review --approve─▶ reviewed ─record─▶ passing
+#      ▲                │  review --reject             │  └─ 위험 파일 ─▶ awaiting-approval ─approve─▶ passing
+#      └── 실패(한도 전) ┴──────────────────────────────┘
 #   실패가 한도에 닿거나 같은 실패가 반복되면 ──▶ blocked (reset 으로만 복귀)
 #   구현자가 스스로 정할 수 없는 설계 결정을 만나면 ──▶ needs-decision (decide 로 답하면 pending)
-#   pending 이 아닌 상태로 떠나는 기능의 변경은 harness/<id> 브랜치에 보관된다 (lib/park.sh)
+#   통과하지 못하고 떠나는 기능의 변경은 치워서 보관된다 (lib/record.sh — 커밋 운용이면 브랜치, 아니면 패치)
 #
 
 readonly STATUS_PENDING="pending"
 readonly STATUS_VERIFIED="verified"
+readonly STATUS_REVIEWED="reviewed"
 readonly STATUS_PASSING="passing"
 readonly STATUS_AWAITING="awaiting-approval"
 readonly STATUS_BLOCKED="blocked"
@@ -55,6 +56,13 @@ set_feature_fields() {  # set_feature_fields <id> <json-object>
   json_update "$(features_file)" \
     '(.features[] | select(.id == $id)) |= (. + $patch)' \
     --arg id "$1" --argjson patch "$2"
+}
+
+# result_json <id> <result> <reason> [detail] — 명령 결과를 루프가 읽는 한 줄 JSON 으로
+result_json() {
+  jq -cn --arg id "$1" --arg result "$2" --arg reason "$3" --arg detail "${4:-}" \
+    --arg status "$(feature_field "$1" status)" --argjson attempts "$(feature_field "$1" attempts)" \
+    '{id: $id, result: $result, status: $status, attempts: $attempts, reason: $reason, detail: $detail}'
 }
 
 # 실패 메시지에서 숫자(시간·줄 번호 등)를 지워 "같은 실패"를 안정적으로 비교한다.
@@ -99,7 +107,7 @@ features_summary() {
   jq -r '
     def ids(s): [.features[] | select(.status == s) | .id] | join(", ");
     "기능 원장: 전체 \(.features | length) · 통과 \([.features[] | select(.status == "passing")] | length)"
-    + " · 남음 \([.features[] | select(.status == "pending" or .status == "verified")] | length)"
+    + " · 남음 \([.features[] | select(.status == "pending" or .status == "verified" or .status == "reviewed")] | length)"
     + (if ids("blocked") != "" then "\n  막힘(사람 확인 필요): " + ids("blocked") else "" end)
     + (if ids("awaiting-approval") != "" then "\n  승인 대기: " + ids("awaiting-approval") else "" end)
     + ([.features[] | select(.status == "needs-decision") | "\n  판단 필요: \(.id) — \(.question)"] | join(""))

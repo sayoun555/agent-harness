@@ -159,7 +159,9 @@ try {
   assert.equal(trace.filter((t) => t.event === 'verify').length, 8)
   assert.equal(trace.find((t) => t.event === 'ask').question, questions_cache)
   // 작은따옴표가 든 LLM 반려 사유가 셸을 거쳐 그대로 기록돼야 한다 (명령 주입 방지 확인)
-  assert.equal(trace.find((t) => t.event === 'review').reason, "과설계 — 'it's' 따옴표도 안전해야 한다")
+  const reviews = trace.filter((t) => t.event === 'review')
+  assert.equal(reviews.find((t) => t.result === 'reject').reason, "과설계 — 'it's' 따옴표도 안전해야 한다")
+  assert.equal(reviews.filter((t) => t.result === 'approve').length, 4, '승인도 원장 기록으로 남는다 (sub, div, pay, tail)')
 
   // 설계에서 온 기능은 구현자에게 설계 문서가 전달되고, 아닌 기능에는 없다
   assert.match(fakeAgent.calls.implementPrompts.sub, /설계 문서: docs\/design\/calc\.md/)

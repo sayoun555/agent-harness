@@ -22,25 +22,41 @@ design check 를 통과하지 못한 설계는 원장에 들어가지 않는다.
 | 노드 | 누가 | 명령 |
 |---|---|---|
 | 선택 | 결정론 | `feature next --json` |
-| 구현 | LLM (매 바퀴 새 컨텍스트) | — |
-| 게이트 | 결정론 | `feature verify ID` = compile → test-guard → acceptance |
-| 검증 | LLM (구현하지 않은 독립 적대자) | `review --context ID` 를 읽고 판정 |
-| 기록 | 결정론 | `feature commit ID` 또는 `feature reject ID` |
+| 구현 | LLM (매 바퀴 새 컨텍스트) | 지시문은 `feature brief ID` (루프와 스킬이 같은 것을 쓴다) |
+| 게이트 | 결정론 | `feature verify ID` = compile → test-guard → acceptance (빌드는 빌드 잠금 안에서) |
+| 검증 | LLM (구현하지 않은 독립 적대자) | `review --context ID` 를 읽고 판정 → `feature review ID --approve\|--reject` |
+| 기록 | 결정론 | `feature record ID` (reviewed 에서만) |
 
-워크플로우(`workflows/feature-loop.js`)는 흐름만 제어한다. 상태 전이는 모두 `lib/features.sh` 에 있다.
+워크플로우(`workflows/feature-loop.js`)는 흐름만 제어한다. 상태 전이는 `lib/features.sh`, 기록 정책은 `lib/record.sh`, 변경 비교는 `lib/changes.sh` 에 있다.
+
+## 운용 방식 (loop.autoCommit)
+
+| | 커밋으로 운용 (기본) | 커밋 없이 (`autoCommit: false`) |
+|---|---|---|
+| 비교 기준 | HEAD 트리 | 기준선 트리 (`harness baseline save`, git 트리 객체) |
+| 통과 기록 | git 커밋 | 원장 passing + 기준선 갱신 |
+| 떠나는 기능 보관 | `harness/<id>` 브랜치 | `.harness/parked/<id>.patch` + 기준선으로 되돌림 |
+| 승인 | 브랜치 cherry-pick + 커밋 | 패치 적용 + 기준선 갱신 |
+| 병렬 | 워크트리 + adopt | 같은 트리 + claim(범위) + 빌드 잠금 |
+| 시작 조건 | 기준 커밋 + 깨끗한 트리 | 없음 (기준선이 없으면 지금 상태를 저장) |
+
+두 방식 모두 비교는 git 트리 두 개의 diff 다. 현재 트리는 임시 인덱스로 찍어서 진짜 인덱스와 히스토리를 건드리지 않는다. 그래서 새 파일·삭제·스테이징·untracked 가 한 번에 잡히고, 커밋 0개 저장소에서도 된다.
 
 ## 병렬 모드 (loop.parallel ≥ 2)
 
 ```
-선택(최대 N개) ─▶ 구현 ×N (각자 워크트리, harness/wip-<id> 에 커밋)
-                    │
-                    ▼  하나씩
-               가져오기 ─▶ 게이트 ─▶ 검증 ─▶ 기록
-                 │충돌
-                 └─▶ 실패로 기록 → 다음 바퀴에 최신 HEAD 위에서 다시 구현
+커밋 운용   선택(최대 N개) ─▶ 구현 ×N (각자 워크트리, harness/wip-<id> 에 커밋)
+                                 ▼ 하나씩
+                            가져오기(adopt) ─▶ 게이트 ─▶ 검증 ─▶ 기록
+                              │충돌 → 실패로 기록, 다음 바퀴에 최신 HEAD 위에서 다시 구현
+
+커밋 없음   선택(최대 N개) ─▶ 구현 ×N (같은 트리, 빌드는 잠금, 바꾼 파일 보고)
+                                 ▼ 하나씩
+                            범위(claim) ─▶ 게이트 ─▶ 검증 ─▶ 기록   (모두 그 기능의 파일만 본다)
 ```
 
 원장은 메인 작업 트리 한 곳에서만 쓴다. 병렬인 것은 구현(가장 느린 LLM 단계)뿐이다.
+같은 트리 병렬은 기능들이 서로 다른 파일을 맡을 때만 안전하다. 같은 파일을 고치는 기능은 순차로 돌린다.
 
 ## 트리거
 
@@ -50,20 +66,19 @@ Workflow 도구는 작업 디렉터리 밖의 스크립트를 거부하므로, �
 ## 기능 상태
 
 ```
-pending ─verify 통과─▶ verified ─commit─▶ passing
-   │ ▲                   │   └─위험 파일─▶ awaiting-approval ─approve─▶ passing
-   │ └── 실패(한도 전) ───┘
+pending ─verify─▶ verified ─review --approve─▶ reviewed ─record─▶ passing
+   │ ▲               │ review --reject           │  └─위험 파일─▶ awaiting-approval ─approve─▶ passing
+   │ └── 실패(한도 전) ┴───────────────────────────┘
    └─구현자가 질문─▶ needs-decision ─decide─▶ pending (결정이 다음 구현에 전달됨)
 실패가 maxAttempts 에 닿거나, 같은 실패가 repeatLimit 번 연속이거나, git 훅이 커밋을 막으면 ─▶ blocked ─reset─▶ pending
 ```
 
 ## 보관
 
-blocked · awaiting-approval · needs-decision 으로 떠나는 기능의 변경은 `harness/<id>` 브랜치의 커밋으로 보관하고, 작업 트리를 HEAD 로 되돌린다. 기능 원장의 변경은 보관하지 않고 유지한다.
-이게 없으면 커밋 노드가 작업 트리 전체를 담기 때문에, 승인을 기다리던 결제 코드가 다음 기능의 커밋에 승인 없이 섞인다.
-approve 는 보관 브랜치를 가져와 커밋하고 브랜치를 지운다. reset 은 HEAD 에서 다시 구현하고 보관 브랜치는 참고용으로 남긴다.
-
-같은 실패 판정은 실패 이유와 출력 끝부분에서 숫자를 지운 지문으로 한다. 시간·줄 번호가 달라도 같은 실패로 본다.
+blocked · awaiting-approval · needs-decision 으로 떠나는 기능의 변경은 치워서 보관하고, 작업 트리를 기준 트리로 되돌린다. 기능 원장의 변경은 보관하지 않고 유지한다.
+이게 없으면 기록할 때 작업 트리 전체가 담기기 때문에, 승인을 기다리던 결제 코드가 다음 기능과 함께 승인 없이 기록된다.
+보관 위치는 원장의 `parked` 에 있다. 커밋 운용이면 `harness/<id>` 브랜치, 커밋 없이 운용하면 `.harness/parked/<id>.patch` 다.
+approve 는 보관한 변경을 되가져와 기록하고 보관본을 지운다. reset 은 기준 트리에서 다시 구현하고 보관본은 참고용으로 남긴다.
 
 ## 종료 조건
 

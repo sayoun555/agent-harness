@@ -44,7 +44,8 @@
     "guidance": [],
     "footguns": [],
     "criteria": [],
-    "_criteriaAbout": "검증자가 코드를 판정할 때 읽는 기준 파일(design/criteria/ 의 이름이나 프로젝트 경로). 구현자에게는 내용을 주입하지 않고 볼 수 있는 명령만 알려 준다."
+    "_criteriaAbout": "검증자가 코드를 판정할 때 읽는 기준 파일(design/criteria/ 의 이름이나 프로젝트 경로). 구현자에게는 내용을 주입하지 않고 볼 수 있는 명령만 알려 준다.",
+    "maxDiffLines": 800
   },
   "state": {
     "featuresFile": ".harness/features.json",
@@ -52,7 +53,7 @@
     "traceFile": ".harness/trace.jsonl"
   },
   "loop": {
-    "_about": "maxAttempts: 기능 하나의 최대 시도. repeatLimit: 같은 실패가 연속 이 횟수면 막힘. maxIterations: 루프 한 번의 최대 바퀴. parallel: 한 바퀴에 동시에 구현할 기능 수(1 이면 순차). 2 이상이면 구현만 워크트리에서 병렬, 게이트·검증·기록은 하나씩.",
+    "_about": "maxAttempts: 기능 하나의 최대 시도. repeatLimit: 같은 실패가 연속 이 횟수면 막힘. maxIterations: 루프 한 번의 최대 바퀴. parallel: 한 바퀴에 동시에 구현할 기능 수(1 이면 순차). 2 이상이면 구현만 워크트리에서 병렬, 게이트·검증·기록은 하나씩. autoCommit: false 면 하네스가 커밋·브랜치를 만들지 않는다(기준선과 패치로 운용).",
     "maxAttempts": 3,
     "repeatLimit": 2,
     "maxIterations": 20,
@@ -66,7 +67,9 @@
         "--allowedTools",
         "Bash,Read,Edit,Write,Glob,Grep,Workflow,Agent"
       ]
-    }
+    },
+    "autoCommit": true,
+    "buildLockTimeoutSeconds": 900
   },
   "approval": {
     "_about": "이 글롭에 걸리는 파일을 바꾼 기능은 자동 커밋하지 않고 사람 승인을 기다린다.",

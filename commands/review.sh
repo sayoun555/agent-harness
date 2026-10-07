@@ -10,7 +10,10 @@
 #
 set -euo pipefail
 source "$HARNESS_HOME/lib/common.sh"
+source "$HARNESS_HOME/lib/cli.sh"
 source "$HARNESS_HOME/lib/features.sh"
+source "$HARNESS_HOME/lib/changes.sh"
+source "$HARNESS_HOME/lib/record.sh"
 source "$HARNESS_HOME/lib/design.sh"
 require_commands git jq
 project_is_plugged_in || { info "review: 이 프로젝트에 하네스가 없다 — 건너뜀"; exit 0; }
@@ -53,14 +56,24 @@ print_feature_context() {  # print_feature_context <id>
   jq -r '"- id: \(.id)\n- 설명: \(.description)\n- acceptance: \(.acceptance)"' <<<"$(feature_json "$id")"
   echo
   print_design_reference "$id"
-  echo "## 바뀐 파일 (HEAD 대비)"
-  changed_files | sed 's/^/- /'
+  print_change_section "$id"
+}
+
+# 기준 트리 대비 변경. 새 파일·삭제·스테이징·untracked 를 모두 담는다 (lib/changes.sh).
+# 같은 트리 병렬이면 기능이 맡은 범위(scope)만 보여 준다.
+print_change_section() {  # print_change_section <id>
+  local label
+  label="$(base_label)"
+  scope_of "$1"
+  [[ ${#SCOPE[@]} -gt 0 ]] && label="$label, 범위 ${#SCOPE[@]}개 파일"
+  echo "## 바뀐 파일 ($label 대비)"
+  changed_files ${SCOPE[@]+"${SCOPE[@]}"} | sed 's/^/- /'
+  deleted_files ${SCOPE[@]+"${SCOPE[@]}"} | sed 's/^/- (삭제) /'
   echo
-  echo "## diff (HEAD 대비, 추적 중인 파일)"
+  echo "## diff ($label 대비)"
   echo '```diff'
-  git diff HEAD -- . ':(exclude).harness/features.json' | head -n 600
+  print_change_diff ${SCOPE[@]+"${SCOPE[@]}"} | head -n "$(cfg '.review.maxDiffLines')"
   echo '```'
-  print_new_files
 }
 
 # 기능이 설계 문서에서 왔으면, 합의된 설계 결정과 어긋났는지도 본다
@@ -72,16 +85,6 @@ print_design_reference() {
   echo "- 이 기능은 위 설계 문서에서 나왔다. 문서의 '설계 결정' 표와 어긋난 구현은 반려한다."
   echo "- 사람이 정한 결정(상태가 '사람 결정: …')은 특히 그대로 따라야 한다."
   echo
-}
-
-print_new_files() {  # git diff 에 안 나오는 신규(untracked) 파일 내용
-  local file
-  while IFS= read -r file; do
-    [[ -f "$file" ]] || continue
-    printf '\n## 신규 파일: %s\n```\n' "$file"
-    head -n 200 "$file"
-    echo '```'
-  done < <(git ls-files --others --exclude-standard)
 }
 
 print_context() {

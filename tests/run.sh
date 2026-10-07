@@ -183,12 +183,20 @@ test_guard_only_warns_when_assertion_moves_between_files() {
 # ── feature: 상태 전이 ───────────────────────────────────────────────
 add_feature() { h feature add --id "$1" --desc "$2" --acceptance "$3" >/dev/null 2>&1; git add -A; git commit -qm "add $1"; }
 
-test_feature_verify_pass_then_commit_marks_passing() {
+# 결정론 게이트와 독립 검증 승인까지 (기록 직전 상태로)
+verify_and_review() { h feature verify "$1" >/dev/null 2>&1; h feature review "$1" --approve >/dev/null 2>&1; }
+
+parked_ref_of() { jq -r --arg id "$1" '.features[] | select(.id == $id) | .parked.ref // ""' .harness/features.json; }
+
+test_feature_verify_review_record_marks_passing() {
   add_feature sub "빼기" 'grep -q "sub" src/math.js'
   echo 'export const sub = (a, b) => a - b;' >> src/math.js
   assert_exit 0 h feature verify sub
   assert_eq "$(status_of sub)" "verified"
-  assert_exit 0 h feature commit sub
+  assert_exit 2 h feature record sub "(독립 검증 전에는 기록할 수 없다)"
+  assert_exit 0 h feature review sub --approve --reason "기준 위반 없음"
+  assert_eq "$(status_of sub)" "reviewed"
+  assert_exit 0 h feature record sub
   assert_eq "$(status_of sub)" "passing"
   assert_contains "$(git log -1 --format=%s)" "feat(sub)"
   assert_eq "$(git status --porcelain)" ""
@@ -236,8 +244,8 @@ test_feature_reject_records_review_failure() {
 test_feature_commit_waits_for_approval_on_risky_file() {
   add_feature pay "결제" 'test -f src/payment.js'
   echo 'export const pay = () => true;' > src/payment.js
-  h feature verify pay >/dev/null 2>&1
-  assert_exit 0 h feature commit pay
+  verify_and_review pay
+  assert_exit 0 h feature record pay
   assert_eq "$(status_of pay)" "awaiting-approval"
   assert_eq "$(git log -1 --format=%s)" "add pay" "(아직 커밋하면 안 됨)"
   assert_exit 0 h feature approve pay
@@ -249,8 +257,8 @@ test_feature_commit_rolls_back_when_git_hook_blocks() {
   add_feature sub "빼기" 'true'
   git config core.hooksPath "$ROOT/git-hooks"
   echo '// TODO: 임시' >> src/math.js     # verify 는 통과하지만 pre-commit 이 막는다
-  h feature verify sub >/dev/null 2>&1
-  assert_exit 1 h feature commit sub
+  verify_and_review sub
+  assert_exit 1 h feature record sub
   assert_eq "$(status_of sub)" "blocked" "(커밋 실패는 사람이 볼 수 있게 막힘으로)"
   assert_eq "$(field_of sub lastFailure)" "git 커밋 실패 (훅 차단 등)"
   assert_eq "$(git log -1 --format=%s)" "add sub"
@@ -263,13 +271,13 @@ test_risky_change_is_parked_and_not_leaked_into_next_commit() {
   add_feature pay "결제" 'test -f src/payment.js'
   add_feature sub "빼기" 'grep -q "const sub" src/math.js'
   echo 'export const pay = () => true;' > src/payment.js
-  h feature verify pay >/dev/null 2>&1; h feature commit pay >/dev/null 2>&1
+  verify_and_review pay; h feature record pay >/dev/null 2>&1
   assert_eq "$(status_of pay)" "awaiting-approval"
   assert_eq "$(test -e src/payment.js && echo leaked || echo clean)" "clean" "(작업 트리에서 빠져야 함)"
-  assert_eq "$(field_of pay parkedBranch)" "harness/pay"
+  assert_eq "$(parked_ref_of pay)" "harness/pay"
 
   echo 'export const sub = (a, b) => a - b;' >> src/math.js
-  h feature verify sub >/dev/null 2>&1; h feature commit sub >/dev/null 2>&1
+  verify_and_review sub; h feature record sub >/dev/null 2>&1
   assert_eq "$(status_of sub)" "passing"
   assert_eq "$(git show --name-only --format= HEAD | grep -c payment || true)" "0" "(결제 코드가 빼기 커밋에 섞이면 안 됨)"
 
@@ -293,7 +301,7 @@ test_blocked_feature_changes_are_parked() {
 test_approve_refuses_dirty_tree() {
   add_feature pay "결제" 'test -f src/payment.js'
   echo 'export const pay = () => true;' > src/payment.js
-  h feature verify pay >/dev/null 2>&1; h feature commit pay >/dev/null 2>&1
+  verify_and_review pay; h feature record pay >/dev/null 2>&1
   echo 'stray' > src/other.js
   assert_exit 2 h feature approve pay
   assert_eq "$(status_of pay)" "awaiting-approval"
@@ -342,7 +350,7 @@ test_feature_verify_refuses_blocked_feature() {
 test_feature_audit_detects_regression() {
   add_feature sub "빼기" 'grep -q "sub" src/math.js'
   echo 'export const sub = (a, b) => a - b;' >> src/math.js
-  h feature verify sub >/dev/null 2>&1 && h feature commit sub >/dev/null 2>&1
+  verify_and_review sub && h feature record sub >/dev/null 2>&1
   delete_lines 'sub' src/math.js
   assert_exit 1 h feature audit
   assert_eq "$(status_of sub)" "pending"
@@ -391,10 +399,10 @@ test_feature_adopt_brings_branch_into_worktree() {
 
 test_trace_records_each_node() {
   add_feature sub "빼기" 'true'
-  h feature verify sub >/dev/null 2>&1
-  h feature commit sub >/dev/null 2>&1
-  assert_eq "$(jq -r .event .harness/trace.jsonl | paste -sd, -)" "verify,commit"
-  assert_contains "$(h trace summary)" "commit"
+  verify_and_review sub
+  h feature record sub >/dev/null 2>&1
+  assert_eq "$(jq -r .event .harness/trace.jsonl | paste -sd, -)" "verify,review,record"
+  assert_contains "$(h trace summary)" "record"
 }
 
 # ── init: 프로젝트 단위 플러그인 활성화 ─────────────────────────────
@@ -827,6 +835,175 @@ test_review_context_carries_code_criteria() {
   assert_contains "$(h review --context a)" "K4. 객체에 일을 시킨다"
 }
 
+# ── 커밋 없이 운용 (loop.autoCommit: false) ─────────────────────────
+use_ledger_mode() {
+  jq '.loop = ((.loop // {}) + {autoCommit: false})' .harness/project.json > p && mv p .harness/project.json
+}
+
+# 커밋을 모두 없앤다(파일은 스테이징된 채로). 보고된 상황: 커밋 0개 저장소
+drop_all_commits() { git update-ref -d "$(git symbolic-ref HEAD)"; }
+
+commit_count() { git rev-list --all 2>/dev/null | wc -l | tr -d ' '; }
+
+test_ledger_mode_records_without_any_commit() {
+  use_ledger_mode
+  add_feature sub "빼기" 'grep -q "const sub" src/math.js'
+  drop_all_commits
+  assert_exit 0 h feature preflight "(커밋 0개·더러운 트리라도 기준선으로 시작)"
+  assert_eq "$(test -s .harness/baseline.json && echo saved)" "saved"
+  echo 'export const sub = (a, b) => a - b;' >> src/math.js
+  verify_and_review sub
+  assert_exit 0 h feature record sub
+  assert_eq "$(status_of sub)" "passing"
+  assert_eq "$(commit_count)" "0" "(커밋을 만들지 않는다)"
+  assert_eq "$(git for-each-ref refs/heads refs/harness | wc -l | tr -d ' ')" "0" "(브랜치도 만들지 않는다)"
+  assert_eq "$(h baseline show | grep -c 'src/math.js' || true)" "0" "(기록 뒤 기준선이 갱신된다)"
+}
+
+test_ledger_mode_review_context_sees_staged_files_without_head() {
+  use_ledger_mode
+  add_feature a "첫째" 'true'
+  drop_all_commits
+  h feature preflight >/dev/null 2>&1
+  echo 'export const div = (a, b) => a / b;' > src/div.js
+  git add src/div.js
+  local out
+  out="$(h review --context a)"
+  assert_contains "$out" "- src/div.js"
+  assert_contains "$out" "+export const div"
+}
+
+test_ledger_mode_test_guard_compares_with_baseline() {
+  use_ledger_mode
+  drop_all_commits
+  assert_contains "$(h test-guard)" "감시하지 못했다" "(기준선이 없으면 조용히 통과하지 않는다)"
+  h baseline save >/dev/null
+  delete_lines 'add(0, 0)' tests/math.test.js
+  assert_exit 1 h test-guard
+  assert_contains "$(h test-guard --json)" '"weakened":true'
+}
+
+test_ledger_mode_blocked_feature_is_set_aside_as_patch() {
+  use_ledger_mode
+  add_feature mul "곱하기" 'grep -q "const mul =" src/math.js'
+  h feature preflight >/dev/null 2>&1
+  echo 'export const mull = 1;' >> src/math.js
+  h feature verify mul >/dev/null 2>&1 || true
+  h feature verify mul >/dev/null 2>&1 || true
+  assert_eq "$(status_of mul)" "blocked"
+  assert_eq "$(parked_ref_of mul)" ".harness/parked/mul.patch"
+  assert_contains "$(cat .harness/parked/mul.patch)" "+export const mull = 1;"
+  assert_eq "$(grep -c mull src/math.js || true)" "0" "(작업 트리는 기준선으로 되돌아간다)"
+  assert_eq "$(commit_count)" "2"
+}
+
+test_ledger_mode_risky_feature_waits_and_approve_brings_it_back() {
+  use_ledger_mode
+  add_feature pay "결제" 'test -f src/payment.js'
+  h feature preflight >/dev/null 2>&1
+  echo 'export const pay = () => true;' > src/payment.js
+  verify_and_review pay
+  assert_exit 0 h feature record pay
+  assert_eq "$(status_of pay)" "awaiting-approval"
+  assert_eq "$(test -e src/payment.js && echo left || echo set-aside)" "set-aside"
+  assert_exit 0 h feature approve pay
+  assert_eq "$(status_of pay)" "passing"
+  assert_eq "$(test -f src/payment.js && echo back)" "back"
+  assert_eq "$(test -e .harness/parked/pay.patch && echo left || echo dropped)" "dropped"
+  assert_eq "$(commit_count)" "2" "(승인도 커밋하지 않는다)"
+}
+
+test_ledger_mode_claimed_scopes_keep_features_apart() {
+  use_ledger_mode
+  add_feature a "에이" 'test -f src/a.js'
+  add_feature b "비" 'test -f src/b.js'
+  h feature preflight >/dev/null 2>&1
+  echo 'export const a = 1;' > src/a.js
+  echo 'export const b = 1;' > src/b.js
+  h feature claim a --files src/a.js >/dev/null
+  h feature claim b --files src/b.js >/dev/null
+  assert_eq "$(h review --context a | grep -c 'src/b.js' || true)" "0" "(a 의 검증에는 b 가 보이지 않는다)"
+  verify_and_review a
+  h feature record a >/dev/null 2>&1
+  assert_eq "$(status_of a)" "passing"
+  assert_contains "$(h review --context b)" "- src/b.js" "(a 를 기록해도 b 의 변경은 기준선에 섞이지 않는다)"
+  assert_eq "$(jq -c '.features[] | select(.id == "a") | .scope' .harness/features.json)" "null" "(기록하면 범위를 지운다)"
+}
+
+test_adopt_is_refused_in_ledger_mode() {
+  use_ledger_mode
+  add_feature a "에이" 'true'
+  assert_exit 2 h feature adopt a harness/wip-a
+}
+
+test_feature_commit_is_an_alias_of_record() {
+  add_feature sub "빼기" 'true'
+  verify_and_review sub
+  assert_exit 0 h feature commit sub
+  assert_eq "$(status_of sub)" "passing"
+}
+
+test_review_reject_requires_reason_and_records_failure() {
+  add_feature sub "빼기" 'true'
+  h feature verify sub >/dev/null 2>&1
+  assert_exit 2 h feature review sub --reject
+  assert_exit 0 h feature review sub --reject --reason "플래그로 흉내 낸 상태 기계"
+  assert_eq "$(status_of sub)" "pending"
+  assert_eq "$(field_of sub lastFailure)" "리뷰 반려: 플래그로 흉내 낸 상태 기계"
+}
+
+# ── 빌드 잠금 ───────────────────────────────────────────────────────
+test_lock_runs_command_and_releases() {
+  assert_exit 0 h lock run -- true
+  assert_exit 1 h lock run -- false "(명령의 종료 코드를 그대로 돌려준다)"
+  assert_eq "$(test -e .harness/build.lock && echo held || echo released)" "released"
+}
+
+test_lock_reclaims_stale_lock() {
+  mkdir -p .harness/build.lock && echo 999999 > .harness/build.lock/pid
+  assert_exit 0 h lock run -- true "(죽은 프로세스의 잠금은 회수한다)"
+}
+
+test_lock_waits_for_holder() {
+  mkdir -p .harness/build.lock
+  sleep 3 & local holder=$!
+  echo "$holder" > .harness/build.lock/pid
+  ( sleep 2; rm -rf .harness/build.lock ) &
+  local start end
+  start="$(date +%s)"
+  assert_exit 0 h lock run -- true
+  end="$(date +%s)"
+  (( end - start >= 1 )) || fail "잠금을 기다리지 않았다"
+  kill "$holder" 2>/dev/null; wait 2>/dev/null
+}
+
+# ── 구현자 지시문 ────────────────────────────────────────────────────
+test_brief_is_the_single_implementer_prompt() {
+  add_feature sub "빼기" 'true'
+  local seq iso shared
+  seq="$(h feature brief sub)"
+  assert_contains "$seq" "기능 id: sub"
+  assert_contains "$seq" "review --criteria"
+  assert_contains "$seq" "git commit 하지 않는다"
+  iso="$(h feature brief sub --mode isolated --json | jq -r .prompt)"
+  assert_contains "$iso" "git checkout -q -b harness/wip-sub"
+  shared="$(h feature brief sub --mode shared)"
+  assert_contains "$shared" ".harness/bin/harness lock run --"
+  assert_contains "$shared" "filesChanged"
+  assert_exit 2 h feature brief sub --mode nope
+}
+
+test_brief_carries_decisions_and_last_failure() {
+  h feature add --id cache --desc "캐싱" --acceptance false --decisions-json '[{"question":"D1 저장소","answer":"Redis"}]' >/dev/null
+  git add -A && git commit -qm "add cache"
+  h feature verify cache >/dev/null 2>&1 || true
+  local out
+  out="$(h feature brief cache)"
+  assert_contains "$out" "- D1 저장소 → Redis"
+  assert_contains "$out" "[직전 시도 실패"
+  assert_contains "$out" "구조로 해결"
+}
+
 # ── 훅 ──────────────────────────────────────────────────────────────
 hook_input() { jq -cn --arg p "$1" '{tool_input: {file_path: $p}}'; }
 
@@ -889,7 +1066,7 @@ test_review_context_includes_diff_and_new_files() {
   out="$(h review --context sub)"
   assert_contains "$out" "의미 적대자 프로토콜"
   assert_contains "$out" "+export const sub"
-  assert_contains "$out" "신규 파일: src/div.js"
+  assert_contains "$out" "+export const div"
 }
 
 # ── git 래퍼 ────────────────────────────────────────────────────────

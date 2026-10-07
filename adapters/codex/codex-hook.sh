@@ -9,6 +9,7 @@ set -euo pipefail
 
 HARNESS_HOME="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 source "$HARNESS_HOME/lib/common.sh"
+source "$HARNESS_HOME/lib/changes.sh"
 cat >/dev/null 2>&1 || true
 project_is_plugged_in || { echo '{"continue":true}'; exit 0; }
 cd "$PROJECT_ROOT"
