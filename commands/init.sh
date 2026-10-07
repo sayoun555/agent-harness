@@ -2,7 +2,11 @@
 #
 # harness init — 이 프로젝트에 하네스를 끼운다. 여러 번 실행해도 안전하다(있는 파일은 건드리지 않음).
 #
-#   harness init [--preset 이름] [--no-plugin] [--no-git-hooks] [--ci] [--ci-loop] [--codex]
+#   harness init [--preset 이름] [--local] [--no-commit] [--no-plugin] [--no-git-hooks] [--ci] [--ci-loop] [--codex]
+#
+#   --local      추적 대상 파일을 하나도 건드리지 않는다. 하네스는 이 머신의 이 클론에만 있다.
+#                무시 목록은 .git/info/exclude, 플러그인은 .claude/settings.local.json, 설계 문서는 .harness/design/
+#   --no-commit  하네스가 커밋·브랜치를 만들지 않는다 (loop.autoCommit: false)
 #
 #   만드는 것
 #     .harness/project.json    프로젝트 설정 (프리셋 + 덮어쓸 값)          ← 커밋
@@ -25,6 +29,8 @@ readonly MARKETPLACE_NAME="agent-harness"
 readonly MARKETPLACE_REPO="sayoun555/agent-harness"
 
 PRESET=""
+LOCAL_ONLY=0
+NO_COMMIT=0
 WANT_PLUGIN=1
 WANT_GIT_HOOKS=1
 WANT_CI=0
@@ -35,6 +41,8 @@ parse_args() {
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --preset)       PRESET="${2:-}"; shift ;;
+      --local)        LOCAL_ONLY=1 ;;
+      --no-commit)    NO_COMMIT=1 ;;
       --no-plugin)    WANT_PLUGIN=0 ;;
       --no-git-hooks) WANT_GIT_HOOKS=0 ;;
       --ci)           WANT_CI=1 ;;
@@ -44,6 +52,34 @@ parse_args() {
     esac
     shift
   done
+  if [[ "$LOCAL_ONLY" -eq 1 && $((WANT_CI + WANT_CI_LOOP)) -gt 0 ]]; then
+    die "$EXIT_USAGE" "--local 은 추적 대상 파일을 만들지 않는다 — --ci · --ci-loop 와 함께 쓸 수 없다"
+  fi
+  return 0
+}
+
+# ── 설치 흔적이 남는 곳 ─────────────────────────────────────────────
+# 공유 설치는 팀이 같은 설정을 받도록 커밋 대상 파일에, 로컬 설치는 이 클론에만 남는 파일에 쓴다.
+ignore_list_file() {
+  if [[ "$LOCAL_ONLY" -eq 1 ]]; then git -C "$PROJECT_ROOT" rev-parse --path-format=absolute --git-path info/exclude
+  else printf '%s\n' "$PROJECT_ROOT/.gitignore"; fi
+}
+
+plugin_settings_file() {
+  if [[ "$LOCAL_ONLY" -eq 1 ]]; then printf '%s\n' "$PROJECT_ROOT/.claude/settings.local.json"
+  else printf '%s\n' "$PROJECT_ROOT/.claude/settings.json"; fi
+}
+
+relative_to_root() { printf '%s\n' "${1#"$PROJECT_ROOT"/}"; }
+
+# 무시할 경로: 로컬 설치는 하네스 전체, 공유 설치는 머신·실행마다 다른 것만
+ignored_paths() {
+  if [[ "$LOCAL_ONLY" -eq 1 ]]; then
+    printf '%s\n' ".harness/" ".claude/settings.local.json"
+    return
+  fi
+  printf '%s\n' ".harness/bin/" ".harness/trace.jsonl" ".harness/figma/" ".harness/runs/" ".harness/loop.lock" \
+    ".harness/build.lock/" ".harness/baseline.json" ".harness/parked/" "$(jq -r '.state.progressFile' "$DEFAULTS_FILE")"
 }
 
 # ── 스택 감지 ───────────────────────────────────────────────────────
@@ -91,13 +127,15 @@ write_if_absent() {  # write_if_absent <path> <content> <label>
 
 create_project_config() {
   local config
-  config="$(jq -n --arg preset "$PRESET" '{
+  config="$(jq -n --arg preset "$PRESET" --argjson local "$LOCAL_ONLY" --argjson noCommit "$NO_COMMIT" '{
     _about: "프리셋 위에 이 프로젝트만의 값을 덮어쓴다. 객체는 깊게 병합, 배열은 교체. 해석 결과: harness config",
     preset: $preset,
     designDocsDir: "",
     build: {},
     approval: {}
-  }')"
+  }
+  + (if $local == 1 then {design: {docsDir: ".harness/design"}} else {} end)
+  + (if $noCommit == 1 then {loop: {autoCommit: false}} else {} end)')"
   write_if_absent "$PROJECT_CONFIG" "$config" ".harness/project.json (preset: $PRESET)"
 }
 
@@ -110,27 +148,30 @@ create_shim() {
   info "✅ .harness/bin/harness → $HARNESS_HOME"
 }
 
-ensure_gitignored() {  # ensure_gitignored <pattern...>
-  local gitignore="$PROJECT_ROOT/.gitignore" pattern
-  for pattern in "$@"; do
-    grep -qxF "$pattern" "$gitignore" 2>/dev/null && continue
-    printf '%s\n' "$pattern" >> "$gitignore"
-    info "✅ .gitignore += $pattern"
-  done
+ensure_ignored() {
+  local file pattern
+  file="$(ignore_list_file)"
+  mkdir -p "$(dirname "$file")"
+  while IFS= read -r pattern; do
+    grep -qxF "$pattern" "$file" 2>/dev/null && continue
+    printf '%s\n' "$pattern" >> "$file"
+    info "✅ $(relative_to_root "$file") += $pattern"
+  done < <(ignored_paths)
 }
 
 # 플러그인을 전역이 아니라 이 프로젝트에서만 켠다. 다른 프로젝트에는 스킬도 훅도 로드되지 않는다.
-#   형식은 `claude plugin install --scope project` 가 쓰는 것과 같다. 기존 설정은 보존한다.
+#   형식은 `claude plugin install --scope project|local` 이 쓰는 것과 같다. 기존 설정은 보존한다.
 enable_plugin_for_project() {
   [[ "$WANT_PLUGIN" -eq 1 ]] || return 0
-  local settings="$PROJECT_ROOT/.claude/settings.json"
+  local settings
+  settings="$(plugin_settings_file)"
   mkdir -p "$(dirname "$settings")"
   [[ -f "$settings" ]] || echo '{}' > "$settings"
   json_update "$settings" '
     .extraKnownMarketplaces[$market] = {source: {source: "github", repo: $repo}}
     | .enabledPlugins[$plugin] = true' \
     --arg market "$MARKETPLACE_NAME" --arg repo "$MARKETPLACE_REPO" --arg plugin "$PLUGIN_ID"
-  info "✅ .claude/settings.json — 이 프로젝트에서만 $PLUGIN_ID 활성화"
+  info "✅ $(relative_to_root "$settings") — 이 프로젝트에서만 $PLUGIN_ID 활성화"
 }
 
 install_git_hooks() {
@@ -170,15 +211,25 @@ report_mcp() {  # 권하는 MCP 가 있으면 연결 상태를 알린다. 설치
   mcp_status_text "$(mcp_status_json)" | sed 's/^/  /' >&2
 }
 
-print_next_steps() {
-  cat >&2 <<EOF
+print_commit_step() {
+  if [[ "$LOCAL_ONLY" -eq 1 ]]; then
+    echo "  3) 커밋할 것이 없다 — 하네스 파일은 모두 git 에서 무시된다 (.git/info/exclude)"
+  else
+    echo "  3) .harness/project.json · .harness/features.json · .claude/settings.json · .gitignore 를 커밋한다 (팀원도 같은 설정을 받는다)"
+  fi
+}
 
-다음 단계
-  1) 해석된 설정 확인:      .harness/bin/harness config
-  2) 기능 추가:            .harness/bin/harness feature add --id ID --desc 설명 --acceptance '테스트 명령'
-  3) .harness/ · .claude/settings.json · .gitignore 를 커밋한다 (팀원도 같은 설정을 받는다)
-  4) Claude Code 를 이 프로젝트에서 열고 말로 시킨다: "PLAN.md 보고 기능 목록 만들어 줘", "루프 돌려 줘"
-EOF
+print_next_steps() {
+  {
+    echo
+    echo "다음 단계"
+    echo "  1) 해석된 설정 확인:      .harness/bin/harness config"
+    echo "  2) 기능 추가:            .harness/bin/harness feature add --id ID --desc 설명 --acceptance '테스트 명령'"
+    print_commit_step
+    echo "  4) Claude Code 를 이 프로젝트에서 열고 말로 시킨다: \"PLAN.md 보고 기능 목록 만들어 줘\", \"루프 돌려 줘\""
+    [[ "$NO_COMMIT" -eq 1 ]] && echo "  ※ 커밋 없이 운용한다: 기록은 원장과 기준선에만 남는다"
+  } >&2
+  return 0
 }
 
 main() {
@@ -189,8 +240,7 @@ main() {
   create_project_config
   create_feature_ledger
   create_shim
-  ensure_gitignored ".harness/bin/" ".harness/trace.jsonl" ".harness/figma/" ".harness/runs/" ".harness/loop.lock" \
-    ".harness/build.lock/" ".harness/baseline.json" ".harness/parked/" "$(jq -r '.state.progressFile' "$DEFAULTS_FILE")"
+  ensure_ignored
   enable_plugin_for_project
   install_git_hooks
   install_ci

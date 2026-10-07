@@ -1009,6 +1009,32 @@ test_brief_carries_decisions_and_last_failure() {
   assert_contains "$out" "구조로 해결"
 }
 
+# ── 로컬 전용 설치 ──────────────────────────────────────────────────
+# 하네스 흔적을 지우고 깨끗한 커밋 상태에서 다시 끼운다
+reinstall() { rm -rf .harness .claude .gitignore; git add -A; git commit -qm "하네스 제거" 2>/dev/null || true; h init --no-git-hooks "$@" >/dev/null 2>&1; }
+
+test_init_local_touches_no_tracked_file() {
+  reinstall --local
+  assert_eq "$(git status --porcelain)" "" "(추적 대상 파일이 하나도 바뀌지 않는다)"
+  assert_contains "$(cat .git/info/exclude)" ".harness/"
+  assert_contains "$(cat .git/info/exclude)" ".claude/settings.local.json"
+  assert_eq "$(jq -r '.enabledPlugins["agent-harness@agent-harness"]' .claude/settings.local.json)" "true"
+  assert_eq "$(test -e .claude/settings.json && echo exists || echo absent)" "absent"
+  assert_eq "$(h config -r .design.docsDir)" ".harness/design"
+  assert_eq "$(h design new calc)" ".harness/design/calc.md"
+  assert_eq "$(git status --porcelain)" "" "(설계 문서도 git 에 잡히지 않는다)"
+}
+
+test_init_no_commit_sets_ledger_mode() {
+  reinstall --local --no-commit
+  assert_eq "$(h config '.loop.autoCommit')" "false"
+}
+
+test_init_local_refuses_ci_templates() {
+  rm -rf .harness
+  assert_exit 2 h init --local --ci --no-git-hooks
+}
+
 # ── 스택 감지 ───────────────────────────────────────────────────────
 detected_preset() { rm -f .harness/project.json; h init --no-git-hooks --no-plugin 2>&1 | sed -n 's/.*(preset: \([a-z]*\)).*/\1/p' | head -1; }
 

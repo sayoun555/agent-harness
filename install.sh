@@ -4,10 +4,11 @@
 #
 #   curl -fsSL https://raw.githubusercontent.com/sayoun555/agent-harness/main/install.sh | bash
 #   curl -fsSL .../install.sh | bash -s -- --preset spring      # init 옵션 전달
+#   curl -fsSL .../install.sh | bash -s -- --local --no-commit  # git 에 아무것도 남기지 않고, 커밋도 하지 않음
 #
 #   1) 하네스를 ~/.agent-harness 에 받는다 (있으면 업데이트)
 #   2) 지금 폴더가 git 프로젝트면 하네스를 끼운다 (harness init)
-#   3) claude CLI 가 있으면 이 프로젝트에만 플러그인을 설치한다 (--scope project)
+#   3) claude CLI 가 있으면 이 프로젝트에만 플러그인을 설치한다 (--scope project, --local 이면 --scope local)
 #   다시 실행하면 업데이트다. 이미 있는 프로젝트 설정은 건드리지 않는다.
 #
 set -euo pipefail
@@ -44,17 +45,24 @@ plug_into_project() {  # plug_into_project <root> <init 옵션...>
   (cd "$root" && bash "$INSTALL_DIR/bin/harness" init "$@")
 }
 
-install_plugin_for_project() {  # install_plugin_for_project <root>
-  local root="$1"
+# --local 이면 플러그인도 이 클론에만 (.claude/settings.local.json), 아니면 팀이 공유 (.claude/settings.json)
+plugin_scope_for() {  # plugin_scope_for <init 옵션...>
+  local arg
+  for arg in "$@"; do [[ "$arg" == "--local" ]] && { echo local; return; }; done
+  echo project
+}
+
+install_plugin_for_project() {  # install_plugin_for_project <root> <scope>
+  local root="$1" scope="$2"
   if ! command -v claude >/dev/null 2>&1; then
     say "ℹ️  claude CLI 가 없다 — Claude Code 에서 이 프로젝트를 열면 플러그인 설치 안내가 뜬다"
     return 0
   fi
   (
     cd "$root"
-    claude plugin marketplace add "$MARKETPLACE_REPO" --scope project >/dev/null 2>&1 || true
-    claude plugin install "$PLUGIN_ID" --scope project >/dev/null 2>&1
-  ) && say "✅ Claude Code 플러그인: 이 프로젝트에만 설치됨" \
+    claude plugin marketplace add "$MARKETPLACE_REPO" --scope "$scope" >/dev/null 2>&1 || true
+    claude plugin install "$PLUGIN_ID" --scope "$scope" >/dev/null 2>&1
+  ) && say "✅ Claude Code 플러그인: 이 프로젝트에만 설치됨 (scope: $scope)" \
     || say "⚠️  플러그인 자동 설치 실패 — Claude Code 에서 /plugin 으로 $PLUGIN_ID 를 설치한다"
 }
 
@@ -70,9 +78,13 @@ main() {
     return 0
   fi
   plug_into_project "$root" "$@"
-  install_plugin_for_project "$root"
+  install_plugin_for_project "$root" "$(plugin_scope_for "$@")"
   say ""
-  say "끝. .harness/ · .claude/settings.json · .gitignore 를 커밋한 뒤, Claude Code 에서 말로 시킨다."
+  if [[ "$(plugin_scope_for "$@")" == "local" ]]; then
+    say "끝. 커밋할 것은 없다(하네스 파일은 git 에서 무시된다). Claude Code 에서 말로 시킨다."
+  else
+    say "끝. .harness/ · .claude/settings.json · .gitignore 를 커밋한 뒤, Claude Code 에서 말로 시킨다."
+  fi
   say "  예) \"PLAN.md 보고 기능 목록 만들어 줘\"  →  \"루프 돌려 줘\""
 }
 
