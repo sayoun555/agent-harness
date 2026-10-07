@@ -24,6 +24,8 @@ usage() {
   loop <run|schedule>         사람 없이 루프 실행 (할 일 없으면 토큰 0), cron 줄 출력
   baseline <save|show>        커밋 없이 운용할 때의 비교 기준 (git 트리, 커밋 아님)
   lock run -- <명령>          빌드 잠금을 잡고 실행 (같은 트리 병렬)
+  prompt <implement|review> ID   구현자·검증자 표준 프롬프트 (루프·스킬·사람이 같은 것을 쓴다)
+  criteria <list|show|add>    검증 기준 (공통 · 스택 · .harness/criteria/ 프로젝트 기준)
   review [--context 기능ID | 파일...]  의미 적대자 (LLM CLI) 또는 적대자용 컨텍스트 출력
   trace [show|tail N]         루프 실행 기록
   ci                          CI 한 번에: check --all + compile + test

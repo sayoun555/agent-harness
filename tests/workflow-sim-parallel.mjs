@@ -15,6 +15,7 @@ import { join } from 'node:path'
 import assert from 'node:assert/strict'
 import {
   makeProject, addFeature, mustRun, loadWorkflow, fakeParallel, noBudget, runCommandNode, schemaKeys,
+  featureIdOf, followBootstrap, checklistVerdict,
 } from './sim-helpers.mjs'
 
 const project = makeProject({ loop: { maxAttempts: 3, repeatLimit: 2, parallel: 2 } })
@@ -55,14 +56,14 @@ const isolatedCalls = []
 async function agent(prompt, opts = {}) {
   const keys = schemaKeys(opts)
   if (keys.includes('exitCode')) return runCommandNode(project, prompt)
-  const id = (prompt.match(/기능 id: ([\w-]+)/) || prompt.match(/--context ([\w-]+)/) || [])[1]
+  const id = featureIdOf(prompt)
   if (keys.includes('branch')) {
     assert.equal(opts.isolation, 'worktree', '병렬 구현은 워크트리 격리여야 한다')
-    assert.match(prompt, new RegExp(`git checkout -q -b harness/wip-${id}`))
+    assert.match(followBootstrap(project, prompt), new RegExp(`git checkout -q -b harness/wip-${id}`))
     isolatedCalls.push(id)
     return { needsDecision: false, question: '', summary: id, filesChanged: [], branch: implementInWorktree(id) }
   }
-  if (keys.includes('approved')) return { approved: true, reason: 'ok' }
+  if (keys.includes('checks')) return checklistVerdict(followBootstrap(project, prompt))
   throw new Error(`알 수 없는 agent 호출: ${opts.label}`)
 }
 

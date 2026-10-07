@@ -529,12 +529,19 @@ test_preflight_carries_mcp_and_never_blocks_on_it() {
 }
 
 # ── 설계 단계 ───────────────────────────────────────────────────────
-# write_design <path> <결정 상태> [검증 계획에서 뺄 구성 요소]
+# write_design <path> <결정 상태> [검증 계획에서 뺄 구성 요소] [요구 원천 종류] [추가 요구 추적 줄]
 write_design() {
-  local path="$1" status="$2" unverified="${3:-}"
+  local path="$1" status="$2" unverified="${3:-}" source_kind="${4:-1차}" extra_trace="${5:-}"
   mkdir -p "$(dirname "$path")"
   cat > "$path" <<DOC
 # 설계: 계산기
+
+## 요구 원천
+
+| 문서 | 판·날짜 | 종류 | 범위 |
+|---|---|---|---|
+| docs/SRS.md | v1.2 · 2026-09-01 | $source_kind | §3 연산 |
+| docs/interface.md | 2026-09-10 | 파생 | 함수 시그니처 |
 
 ## 완성 정의
 
@@ -575,6 +582,15 @@ $( [[ "$unverified" == "sub" ]] || echo '| sub | 함수 존재 | `grep -q "const
 |---|---|---|
 | calc-sub | 빼기 함수 | \`grep -q "const sub" src/math.js\` |
 | calc-mul | 곱하기 함수 | \`grep -q "const mul" src/math.js \|\| exit 1\` |
+
+## 요구 추적
+
+| 요구 ID | 출처 | 구성 요소 | 기능 | 검증 |
+|---|---|---|---|---|
+| SR-301 | SRS §3.1 | sub | calc-sub | 함수 존재 |
+| SR-302 | SRS §3.2 | mul | calc-mul | 함수 존재 |
+| SR-303 | SRS §3.3 | - | 범위 밖 | - |
+$extra_trace
 DOC
 }
 
@@ -591,7 +607,37 @@ test_design_new_creates_doc_that_fails_until_filled() {
 test_design_check_passes_complete_doc() {
   write_design docs/design/calc.md "사람 결정: 없음"
   assert_exit 0 h design check docs/design/calc.md
-  assert_eq "$(h design check docs/design/calc.md --json | jq -c '{ok, problems, unresolved}')" '{"ok":true,"problems":[],"unresolved":[]}'
+  assert_eq "$(h design check docs/design/calc.md --json | jq -c '{ok, problems, unresolved, warnings}')" '{"ok":true,"problems":[],"unresolved":[],"warnings":[]}'
+}
+
+test_design_check_requires_primary_requirement_source() {
+  write_design docs/design/calc.md "결정됨" "" "파생"
+  assert_exit 1 h design check docs/design/calc.md
+  assert_contains "$(h design check docs/design/calc.md)" "1차 요구 문서가 없다"
+}
+
+test_design_check_rejects_unmapped_requirement() {
+  write_design docs/design/calc.md "결정됨" "" "1차" "| SR-304 | SRS §3.4 | div | calc-div | 함수 존재 |"
+  local out
+  out="$(h design check docs/design/calc.md)"
+  assert_contains "$out" "요구 SR-304 의 기능 'calc-div' 가 기능 분해에 없다"
+  assert_contains "$out" "요구 SR-304 의 구성 요소 'div' 가 구성 요소 표에 없다"
+}
+
+test_design_check_warns_when_feature_carries_too_many_requirements() {
+  local rows="" i
+  for i in 1 2 3 4 5 6 7; do rows="$rows| SR-4$i | SRS §4 | sub | calc-sub | 함수 존재 |"$'\n'; done
+  write_design docs/design/calc.md "결정됨" "" "1차" "$rows"
+  assert_exit 0 h design check docs/design/calc.md "(경고는 막지 않는다)"
+  assert_contains "$(h design check docs/design/calc.md)" "기능 calc-sub 가 요구 8개를 맡는다 (> 6)"
+}
+
+test_design_trace_summarizes_coverage() {
+  write_design docs/design/calc.md "결정됨"
+  local out
+  out="$(h design trace docs/design/calc.md --json)"
+  assert_eq "$(jq -c '{total, mapped, outOfScope}' <<<"$out")" '{"total":3,"mapped":2,"outOfScope":1}'
+  assert_contains "$(h design trace docs/design/calc.md)" "요구 3개 — 기능에 이어짐 2 · 범위 밖 1 · 이어지지 않음 0"
 }
 
 test_design_check_lists_pending_human_decisions() {
@@ -964,6 +1010,96 @@ test_review_reject_requires_reason_and_records_failure() {
   assert_eq "$(field_of sub lastFailure)" "리뷰 반려: 플래그로 흉내 낸 상태 기계"
 }
 
+# ── 검증 대조표 ─────────────────────────────────────────────────────
+# full_checklist [위반ID] → 대조표 항목 전부를 채운 JSON (위반ID 하나는 violated)
+full_checklist() {
+  h review --context "$1" | sed -n '/^## 대조표 항목/,/^$/p' | sed -n 's/^- \([A-Z][A-Z0-9]*\): .*/\1/p' \
+    | jq -Rsc --arg bad "${2:-}" 'split("\n") | map(select(length > 0))
+        | {checks: map(if . == $bad then {id: ., result: "violated", where: "src/math.js:2", note: "플래그로 흉내 낸 상태"}
+                       else {id: ., result: "kept", where: "", note: "확인함"} end),
+           summary: "요약"}'
+}
+
+test_review_checklist_all_kept_approves() {
+  add_feature sub "빼기" 'true'
+  h feature verify sub >/dev/null 2>&1
+  assert_exit 0 h feature review sub --verdict-json "$(full_checklist sub)"
+  assert_eq "$(status_of sub)" "reviewed"
+  assert_eq "$(jq -r '.features[0].lastReview.checks | length' .harness/features.json)" "9" "(REQ·REG·Q1~Q7 대조표가 원장에 남는다)"
+}
+
+test_review_checklist_violation_rejects_with_location() {
+  add_feature sub "빼기" 'true'
+  h feature verify sub >/dev/null 2>&1
+  h feature review sub --verdict-json "$(full_checklist sub Q2)" >/dev/null
+  assert_eq "$(status_of sub)" "pending"
+  assert_eq "$(field_of sub lastFailure)" "리뷰 반려: Q2 src/math.js:2 — 플래그로 흉내 낸 상태"
+}
+
+test_review_checklist_with_missing_items_rejects() {
+  add_feature sub "빼기" 'true'
+  h feature verify sub >/dev/null 2>&1
+  h feature review sub --verdict-json '{"checks":[{"id":"REQ","result":"kept"},{"id":"REG","result":"kept"}],"summary":"승인"}' >/dev/null
+  assert_eq "$(status_of sub)" "pending" "(대조표를 건너뛰면 승인하지 않는다)"
+  assert_contains "$(field_of sub lastFailure)" "검증 대조표에 빠진 항목: Q1, Q2"
+}
+
+test_review_checklist_bad_shape_rejects() {
+  add_feature sub "빼기" 'true'
+  h feature verify sub >/dev/null 2>&1
+  h feature review sub --verdict-json '{"approved": true}' >/dev/null
+  assert_contains "$(field_of sub lastFailure)" "검증 대조표 형식이 틀렸다"
+}
+
+test_review_checklist_from_file() {
+  add_feature sub "빼기" 'true'
+  h feature verify sub >/dev/null 2>&1
+  full_checklist sub > verdict.json
+  assert_exit 0 h feature review sub --verdict-file verdict.json
+  assert_eq "$(status_of sub)" "reviewed"
+}
+
+# ── 프로젝트 기준 ───────────────────────────────────────────────────
+test_project_criteria_join_checklist_and_prompts() {
+  add_feature sub "빼기" 'true'
+  h criteria add --title "같은 정보를 두 번 담지 않는다" --rule "한 값은 한 필드에만" >/dev/null
+  h criteria add --title "버튼 차단은 공용 처리 하나로" --rule "화면마다 다르게 막지 않는다" >/dev/null
+  assert_contains "$(h criteria list)" "P2    버튼 차단은 공용 처리 하나로"
+  assert_contains "$(h review --context sub)" "- P1: 같은 정보를 두 번 담지 않는다"
+  assert_contains "$(h prompt implement sub)" "## P2. 버튼 차단은 공용 처리 하나로"
+  assert_contains "$(h review --criteria)" "## P1. 같은 정보를 두 번 담지 않는다"
+}
+
+test_criteria_add_requires_title_and_rule() {
+  assert_exit 2 h criteria add --title "제목만"
+}
+
+# ── 표준 프롬프트 ───────────────────────────────────────────────────
+test_prompt_implement_carries_everything_useful() {
+  h feature add --id cache --desc "캐싱" --acceptance false --design docs/design/c.md \
+    --decisions-json '[{"question":"D1 저장소","answer":"Redis"}]' >/dev/null
+  git add -A && git commit -qm "add cache"
+  h feature verify cache >/dev/null 2>&1 || true
+  local out
+  out="$(h prompt implement cache)"
+  assert_contains "$out" "설계 문서: docs/design/c.md"
+  assert_contains "$out" "- D1 저장소 → Redis"
+  assert_contains "$out" "[직전 시도 실패"
+  assert_contains "$out" "## Q3. 동시성 전략은 하나"
+  assert_eq "$(h feature brief cache)" "$out" "(brief 는 prompt implement 와 같다)"
+}
+
+test_prompt_review_is_self_contained() {
+  add_feature sub "빼기" 'true'
+  echo 'export const sub = (a, b) => a - b;' >> src/math.js
+  local out
+  out="$(h prompt review sub)"
+  assert_contains "$out" "독립 검증자"
+  assert_contains "$out" "feature review sub --verdict-file"
+  assert_contains "$out" "## 대조표 항목"
+  assert_contains "$out" "+export const sub"
+}
+
 # ── 빌드 잠금 ───────────────────────────────────────────────────────
 test_lock_runs_command_and_releases() {
   assert_exit 0 h lock run -- true
@@ -995,7 +1131,8 @@ test_brief_is_the_single_implementer_prompt() {
   local seq iso shared
   seq="$(h feature brief sub)"
   assert_contains "$seq" "기능 id: sub"
-  assert_contains "$seq" "review --criteria"
+  assert_contains "$seq" "# 품질 기준 (검증 대조표 항목)"
+  assert_contains "$seq" "Q1. 정석으로 해결한다"
   assert_contains "$seq" "git commit 하지 않는다"
   iso="$(h feature brief sub --mode isolated --json | jq -r .prompt)"
   assert_contains "$iso" "git checkout -q -b harness/wip-sub"
@@ -1176,7 +1313,7 @@ test_review_context_includes_diff_and_new_files() {
   echo 'export const div = (a, b) => a / b;' > src/div.js
   local out
   out="$(h review --context sub)"
-  assert_contains "$out" "의미 적대자 프로토콜"
+  assert_contains "$out" "# 검증 프로토콜"
   assert_contains "$out" "+export const sub"
   assert_contains "$out" "+export const div"
 }

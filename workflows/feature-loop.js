@@ -11,7 +11,7 @@ export const meta = {
 
 // ── 그래프 ─────────────────────────────────────────────────────────
 //
-//   선택 ─▶ 구현 ─▶ 게이트(verify) ─▶ 검증(review) ─▶ 기록(record) ─▶ 선택 …
+//   선택 ─▶ 구현 ─▶ 게이트(verify) ─▶ 검증(대조표 → review) ─▶ 기록(record) ─▶ 선택 …
 //            ▲        │실패              │반려
 //            └────────┴──────────────────┘  실패 사유를 다음 구현에 넣는다 (시도 한도 · 반복 감지는 원장이 판정)
 //
@@ -60,13 +60,27 @@ const ISOLATED_IMPLEMENTATION = {
   required: [...IMPLEMENTATION.required, 'branch'],
 }
 
+// 검증자의 대조표. 승인·반려는 하네스가 이 표로 정한다(lib/verdict.sh). 빠진 항목이 있으면 반려된다.
 const VERDICT = {
   type: 'object',
   properties: {
-    approved: { type: 'boolean' },
-    reason: { type: 'string', description: '반려면 무엇·어느 기준(ID)·고칠 방법 1~2문장. 통과면 한 줄.' },
+    checks: {
+      type: 'array',
+      description: '"대조표 항목" 의 모든 ID 를 하나씩',
+      items: {
+        type: 'object',
+        properties: {
+          id: { type: 'string', description: '항목 ID (REQ · REG · Q1 · K6 · A2 · P3 …)' },
+          result: { type: 'string', enum: ['kept', 'violated', 'na'] },
+          where: { type: 'string', description: 'violated 면 파일:줄. 아니면 빈 문자열' },
+          note: { type: 'string', description: 'kept 는 근거, violated 는 무엇·고칠 방법, na 는 왜 해당 없는지' },
+        },
+        required: ['id', 'result', 'where', 'note'],
+      },
+    },
+    summary: { type: 'string', description: '한 줄 요약' },
   },
-  required: ['approved', 'reason'],
+  required: ['checks', 'summary'],
 }
 
 // ── 결정론 노드: harness CLI 한 줄 실행 ──────────────────────────────
@@ -97,11 +111,14 @@ async function runHarness(command, label) {
   return result ? lastJsonLine(result.stdout) : null
 }
 
-// ── 지시문 ─────────────────────────────────────────────────────────
-// 구현자 지시문은 harness feature brief 한 곳에서 만든다 (루프 없이 진행하는 스킬과 같다).
-async function briefFor(feature, mode) {
-  const brief = await runHarness(`feature brief ${feature.id} --mode ${mode} --json`, `지시문:${tagOf(feature)}`)
-  return brief && brief.prompt
+// ── 프롬프트 ───────────────────────────────────────────────────────
+// 구현자·검증자 프롬프트는 harness prompt 가 만든다(루프·스킬·사람이 같은 것을 쓴다).
+// 에이전트가 그 명령을 직접 실행해 받아 간다. 긴 프롬프트를 다른 에이전트가 중계하지 않게.
+function implementPrompt(feature, mode) {
+  return [
+    `너는 기능 ${feature.id} 을 구현하는 코더다.`,
+    `먼저 \`${HARNESS} prompt implement ${feature.id} --mode ${mode}\` 를 실행하고, 출력된 지시를 그대로 따른다.`,
+  ].join('\n')
 }
 
 // 사전 점검에서 연결된 MCP 만 검증 지시로 붙인다. 없으면 지시도 없다.
@@ -112,11 +129,8 @@ function reviewPrompt(feature) {
     ? ['', '[런타임 확인 — 연결된 MCP]', ...runtimeHints.map((h) => `- ${h}`)].join('\n')
     : ''
   return [
-    '너는 이 기능을 구현하지 않은 독립 검증자(적대자)다.',
-    `먼저 \`${HARNESS} review --context ${feature.id}\` 를 실행해 프로토콜·기준·footgun·diff 를 읽는다.`,
-    '필요하면 바뀐 파일을 Read 로 직접 확인한다. 파일을 수정하거나 커밋하지 마라.',
-    '컴파일·테스트·acceptance 는 이미 통과했다. 그것들이 못 잡는 의미 위반과 구조 문제를 본다.',
-    '반려할 때는 어긴 기준의 ID 를 적는다. 확신이 없으면 통과(approved=true)다.',
+    `너는 기능 ${feature.id} 을 구현하지 않은 독립 검증자다.`,
+    `먼저 \`${HARNESS} prompt review ${feature.id}\` 를 실행하고, 출력된 프로토콜대로 대조표를 낸다.`,
     runtime,
   ].join('\n')
 }
@@ -142,24 +156,21 @@ async function gateReviewRecord(feature, iteration) {
     return { ...step, node: 'gate', result: gate ? gate.status : 'no-response', reason: gate ? gate.reason : '' }
   }
 
-  // 검증자가 응답하지 않으면 통과로 치지 않는다. 반려로 기록하고 다음 시도에 맡긴다.
+  // 검증자가 응답하지 않으면 빈 대조표를 낸다. 하네스가 "빠진 항목" 으로 반려한다.
   const verdict = await agent(reviewPrompt(feature), { label: `검증:${tag}`, phase: 'Loop', schema: VERDICT })
-    || { approved: false, reason: '검증자 응답 없음' }
-  const decision = verdict.approved ? '--approve' : '--reject'
+    || { checks: [], summary: '검증자 응답 없음' }
   const reviewed = await runHarness(
-    `feature review ${feature.id} ${decision} --reason ${shellQuote(verdict.reason)} --json`, `판정:${tag}`)
-  if (!verdict.approved) {
-    return { ...step, node: 'review', result: reviewed ? reviewed.status : 'no-response', reason: verdict.reason }
+    `feature review ${feature.id} --verdict-json ${shellQuote(JSON.stringify(verdict))} --json`, `판정:${tag}`)
+  if (!reviewed || reviewed.result !== 'approve') {
+    return { ...step, node: 'review', result: reviewed ? reviewed.status : 'no-response', reason: reviewed ? reviewed.reason : '' }
   }
 
   const recorded = await runHarness(`feature record ${feature.id} --json`, `기록:${tag}`)
   return { ...step, node: 'record', result: recorded ? recorded.result : 'no-response', reason: recorded ? recorded.reason : '' }
 }
 
-async function implement(feature, mode, schema, extra = {}) {
-  const prompt = await briefFor(feature, mode)
-  if (!prompt) return null
-  return agent(prompt, { label: `구현:${tagOf(feature)}`, phase: 'Loop', schema, ...extra })
+function implement(feature, mode, schema, extra = {}) {
+  return agent(implementPrompt(feature, mode), { label: `구현:${tagOf(feature)}`, phase: 'Loop', schema, ...extra })
 }
 
 // ── 한 바퀴: 순차 ──────────────────────────────────────────────────

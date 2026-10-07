@@ -16,6 +16,7 @@ import { join } from 'node:path'
 import assert from 'node:assert/strict'
 import {
   makeProject, addFeature, loadWorkflow, fakeParallel, noBudget, runCommandNode, schemaKeys, mustRun, HARNESS,
+  featureIdOf, followBootstrap, checklistVerdict,
 } from './sim-helpers.mjs'
 
 const project = makeProject({
@@ -34,19 +35,19 @@ const sharedPrompts = []
 async function agent(prompt, opts = {}) {
   const keys = schemaKeys(opts)
   if (keys.includes('exitCode')) return runCommandNode(project, prompt)
-  const id = (prompt.match(/기능 id: ([\w-]+)/) || prompt.match(/--context ([\w-]+)/) || [])[1]
+  const id = featureIdOf(prompt)
   if (keys.includes('filesChanged')) {
     assert.equal(opts.isolation, undefined, '커밋 없는 병렬은 워크트리를 쓰지 않는다')
-    sharedPrompts.push(prompt)
+    sharedPrompts.push(followBootstrap(project, prompt))
     writeFileSync(join(project, files[id]), `export const ${id} = 1;\n`)
     return { needsDecision: false, question: '', summary: id, filesChanged: [files[id]] }
   }
-  if (keys.includes('approved')) {
-    const context = mustRun(project, `bash ${HARNESS} review --context ${id}`)
+  if (keys.includes('checks')) {
+    const context = followBootstrap(project, prompt)
     for (const [other, path] of Object.entries(files)) {
       if (other !== id) assert.ok(!context.includes(`- ${path}`), `${id} 의 검증에 ${other} 의 파일이 보이면 안 된다`)
     }
-    return { approved: true, reason: 'ok' }
+    return checklistVerdict(context)
   }
   throw new Error(`알 수 없는 agent 호출: ${opts.label}`)
 }

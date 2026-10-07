@@ -3,7 +3,7 @@
 ## 설계에서 루프까지
 
 ```
-기존 코드·기획 ─▶ 설계 문서(기준 적용) ─▶ design check ─▶ 사람 결정 ─▶ 독립 검토 ─▶ 사람 확인 ─▶ design import ─▶ 루프
+1차 요구 문서·기존 코드 ─▶ 설계 문서(기준 적용, 요구 추적) ─▶ design check ─▶ 사람 결정 ─▶ 독립 검토 ─▶ 사람 확인 ─▶ design import ─▶ 루프
                                             │ 실패                ▲
                                             └─────────────────────┘
 ```
@@ -22,9 +22,9 @@ design check 를 통과하지 못한 설계는 원장에 들어가지 않는다.
 | 노드 | 누가 | 명령 |
 |---|---|---|
 | 선택 | 결정론 | `feature next --json` |
-| 구현 | LLM (매 바퀴 새 컨텍스트) | 지시문은 `feature brief ID` (루프와 스킬이 같은 것을 쓴다) |
+| 구현 | LLM (매 바퀴 새 컨텍스트) | 에이전트가 `prompt implement ID` 를 직접 실행해 표준 프롬프트를 받는다 |
 | 게이트 | 결정론 | `feature verify ID` = compile → test-guard → acceptance (빌드는 빌드 잠금 안에서) |
-| 검증 | LLM (구현하지 않은 독립 적대자) | `review --context ID` 를 읽고 판정 → `feature review ID --approve\|--reject` |
+| 검증 | LLM (구현하지 않은 독립 검증자) | `prompt review ID` 를 받아 대조표를 낸다 → `feature review ID --verdict-json` 으로 하네스가 판정 |
 | 기록 | 결정론 | `feature record ID` (reviewed 에서만) |
 
 워크플로우(`workflows/feature-loop.js`)는 흐름만 제어한다. 상태 전이는 `lib/features.sh`, 기록 정책은 `lib/record.sh`, 변경 비교는 `lib/changes.sh` 에 있다.

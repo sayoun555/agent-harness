@@ -16,6 +16,8 @@ source "$HARNESS_HOME/lib/changes.sh"
 source "$HARNESS_HOME/lib/source.sh"
 source "$HARNESS_HOME/lib/size.sh"
 source "$HARNESS_HOME/lib/record.sh"
+source "$HARNESS_HOME/lib/criteria.sh"
+source "$HARNESS_HOME/lib/verdict.sh"
 source "$HARNESS_HOME/lib/design.sh"
 require_commands git jq
 project_is_plugged_in || { info "review: 이 프로젝트에 하네스가 없다 — 건너뜀"; exit 0; }
@@ -23,16 +25,6 @@ cd "$PROJECT_ROOT"
 
 # 재귀 가드: 적대자 LLM 안의 훅이 또 review 를 부르지 않게 한다.
 [[ "${HARNESS_REVIEWING:-0}" == "1" ]] && { info "review: 재귀 가드 — 건너뜀"; exit 0; }
-
-# 검증 기준 파일: 공통(review.commonCriteria, 스택과 상관없이 항상) → 스택(review.criteria)
-print_review_criteria() {
-  local entry file
-  while IFS= read -r entry; do
-    [[ -z "$entry" ]] && continue
-    file="$(criteria_file_for "$entry")"
-    if [[ -f "$file" ]]; then cat "$file"; echo; else info "⚠️ 검증 기준 파일이 없다: $file"; fi
-  done < <(cfg_lines '.review.commonCriteria'; cfg_lines '.review.criteria')
-}
 
 print_stack_criteria() {
   print_review_criteria
@@ -107,10 +99,18 @@ print_design_reference() {
   echo
 }
 
+# 검증자가 채울 대조표 항목 (lib/verdict.sh 가 이 목록으로 빠진 항목을 잡는다)
+print_checklist() {
+  echo "## 대조표 항목 (전부 채운다: kept · violated · na)"
+  review_checklist | awk -F'\t' '{ printf "- %s: %s\n", $1, $2 }'
+  echo
+}
+
 print_context() {
   cat "$HARNESS_HOME/review/protocol.md"
   echo
   print_stack_criteria
+  print_checklist
   print_feature_context "$1"
 }
 

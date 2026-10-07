@@ -70,7 +70,6 @@ function makeProject() {
 function makeFakeAgent(project) {
   const calls = { implement: {}, review: {}, reviewPrompts: [], implementPrompts: {} }
   const bump = (kind, id) => (calls[kind][id] = (calls[kind][id] || 0) + 1)
-  const featureIdIn = (prompt) => (prompt.match(/기능 id: ([\w-]+)/) || prompt.match(/--context ([\w-]+)/) || [])[1]
 
   const implement = {
     sub: (n) => { if (n >= 2) appendFileSync(join(project, 'src/math.js'), 'export const sub = (a, b) => a - b;\n') },
@@ -91,26 +90,27 @@ function makeFakeAgent(project) {
       const r = sh(project, command)
       return { exitCode: r.status, stdout: r.stdout }
     }
-    const id = featureIdIn(prompt)
+    const id = featureIdOf(prompt)
     if (props.includes('filesChanged')) {                   // 구현 노드
-      calls.implementPrompts[id] = prompt
+      calls.implementPrompts[id] = followBootstrap(project, prompt)
       bump('implement', id)
       if (questions[id]) return { needsDecision: true, question: questions[id], summary: '', filesChanged: [] }
       implement[id](calls.implement[id])
       return { needsDecision: false, question: '', summary: `sim ${id}`, filesChanged: [] }
     }
-    if (props.includes('approved')) {                       // 검증 노드
+    if (props.includes('checks')) {                         // 검증 노드: 대조표
       calls.reviewPrompts.push(prompt)
       const n = bump('review', id)
       const approved = review[id] ? review[id](n) : true
-      return { approved, reason: approved ? 'ok' : "과설계 — 'it's' 따옴표도 안전해야 한다" }
+      const reviewText = followBootstrap(project, prompt)
+      return checklistVerdict(reviewText, approved ? {} : { Q7: { where: 'src/div.js:1', note: "과설계 — 'it's' 따옴표도 안전해야 한다" } })
     }
     throw new Error(`알 수 없는 agent 호출: ${opts.label}`)
   }
 }
 
 // ── 워크플로우 로드 ────────────────────────────────────────────────
-import { loadWorkflow, fakeParallel } from './sim-helpers.mjs'
+import { loadWorkflow, fakeParallel, featureIdOf, followBootstrap, checklistVerdict } from './sim-helpers.mjs'
 
 
 // ── 실행 · 단언 ────────────────────────────────────────────────────
@@ -160,7 +160,7 @@ try {
   assert.equal(trace.find((t) => t.event === 'ask').question, questions_cache)
   // 작은따옴표가 든 LLM 반려 사유가 셸을 거쳐 그대로 기록돼야 한다 (명령 주입 방지 확인)
   const reviews = trace.filter((t) => t.event === 'review')
-  assert.equal(reviews.find((t) => t.result === 'reject').reason, "과설계 — 'it's' 따옴표도 안전해야 한다")
+  assert.equal(reviews.find((t) => t.result === 'reject').reason, "Q7 src/div.js:1 — 과설계 — 'it's' 따옴표도 안전해야 한다")
   assert.equal(reviews.filter((t) => t.result === 'approve').length, 4, '승인도 원장 기록으로 남는다 (sub, div, pay, tail)')
 
   // 설계에서 온 기능은 구현자에게 설계 문서가 전달되고, 아닌 기능에는 없다

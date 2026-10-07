@@ -67,6 +67,8 @@ cmd_verify() {
 
 # ── 독립 검증 기록 ───────────────────────────────────────────────────
 # 검증자(구현하지 않은 에이전트)의 판정을 원장에 남긴다. 기록(record)은 reviewed 에서만 할 수 있다.
+#   에이전트는 대조표(--verdict-json · --verdict-file)를 낸다. 승인·반려는 하네스가 대조표로 정한다(lib/verdict.sh).
+#   --approve · --reject 는 사람이 직접 판정할 때 쓴다.
 approve_review() {  # approve_review <id> <json-mode> <reason>
   local id="$1" reason="${3:-승인}"
   set_feature_fields "$id" "$(jq -cn --arg r "$reason" '{status: "reviewed", reviewNote: $r}')"
@@ -83,16 +85,33 @@ reject_review() {  # reject_review <id> <json-mode> <reason>
   emit "$2" "$(result_json "$id" reject "리뷰 반려: $reason")" "↩️ review $id: 반려 → $status"
 }
 
+verdict_from_args() {  # verdict_from_args <args...> → 대조표 JSON (없으면 빈 출력)
+  local file
+  file="$(flag_value --verdict-file "$@")"
+  if [[ -n "$file" ]]; then cat "$file"; return; fi
+  flag_value --verdict-json "$@"
+}
+
+review_by_checklist() {  # review_by_checklist <id> <json-mode> <대조표>
+  local id="$1" json_mode="$2" verdict="$3"
+  evaluate_verdict "$verdict"
+  set_feature_fields "$id" "$(jq -cn --arg v "$verdict" '{lastReview: (try ($v | fromjson) catch $v)}')"
+  if [[ "$VERDICT_DECISION" == approve ]]; then approve_review "$id" "$json_mode" "$VERDICT_REASON"
+  else reject_review "$id" "$json_mode" "$VERDICT_REASON"; fi
+}
+
 cmd_review() {
   local id="${1:-}"; shift || true
-  local reason json_mode
+  local reason json_mode verdict
   reason="$(flag_value --reason "$@")"
   json_mode="$(json_mode_of "$@")"
-  [[ -n "$id" ]] || die "$EXIT_USAGE" "사용: feature review ID (--approve [--reason 근거] | --reject --reason 이유)"
+  [[ -n "$id" ]] || die "$EXIT_USAGE" "사용: feature review ID (--verdict-json JSON | --verdict-file 파일 | --approve [--reason 근거] | --reject --reason 이유)"
   require_features_file; require_feature "$id"
   require_status "$id" "$STATUS_VERIFIED"
+  verdict="$(verdict_from_args "$@")"
+  if [[ -n "$verdict" ]]; then review_by_checklist "$id" "$json_mode" "$verdict"; return; fi
   if has_flag --approve "$@"; then approve_review "$id" "$json_mode" "$reason"; return; fi
-  has_flag --reject "$@" || die "$EXIT_USAGE" "--approve 나 --reject 중 하나가 필요하다"
+  has_flag --reject "$@" || die "$EXIT_USAGE" "--verdict-json · --verdict-file · --approve · --reject 중 하나가 필요하다"
   [[ -n "$reason" ]] || die "$EXIT_USAGE" "반려에는 --reason 이 필요하다"
   reject_review "$id" "$json_mode" "$reason"
 }

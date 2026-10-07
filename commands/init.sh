@@ -228,6 +228,10 @@ print_next_steps() {
     print_commit_step
     echo "  4) Claude Code 를 이 프로젝트에서 열고 말로 시킨다: \"PLAN.md 보고 기능 목록 만들어 줘\", \"루프 돌려 줘\""
     [[ "$NO_COMMIT" -eq 1 ]] && echo "  ※ 커밋 없이 운용한다: 기록은 원장과 기준선에만 남는다"
+    echo
+    echo "비용 줄이기 (서브에이전트는 시작할 때 세션의 CLAUDE.md·메모리·플러그인·MCP 목록을 모두 싣는다)"
+    echo "  - 하네스 작업은 이 저장소에서 연 Claude Code 세션으로 한다"
+    echo "  - 이 프로젝트에서 쓰지 않는 플러그인·MCP 는 끈다:  /plugin · claude mcp list"
   } >&2
   return 0
 }

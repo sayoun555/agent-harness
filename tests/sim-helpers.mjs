@@ -69,3 +69,27 @@ export function runCommandNode(dir, prompt, env) {
 export function schemaKeys(opts) {
   return Object.keys((opts.schema && opts.schema.properties) || {})
 }
+
+// ── 실제 에이전트처럼: 짧은 부트스트랩 프롬프트의 명령을 직접 실행해 진짜 프롬프트를 받는다 ──
+export function featureIdOf(prompt) {
+  return (prompt.match(/prompt (?:implement|review) ([\w-]+)/) || [])[1]
+}
+
+export function followBootstrap(dir, prompt) {
+  const command = (prompt.match(/`(\.harness\/bin\/harness prompt [^`]+)`/) || [])[1]
+  if (!command) throw new Error(`부트스트랩 명령이 없다:\n${prompt}`)
+  return mustRun(dir, command.replace(/^\.harness\/bin\/harness/, `bash ${HARNESS}`))
+}
+
+// 검증 프롬프트의 "대조표 항목" 을 전부 채운 대조표. violations: {ID: "파일:줄 — 설명"}
+export function checklistVerdict(reviewText, violations = {}) {
+  const section = reviewText.split('## 대조표 항목')[1] || ''
+  const ids = [...section.matchAll(/^- ([A-Z]+[0-9]*): /gm)].map((m) => m[1])
+  if (!ids.includes('REQ')) throw new Error('대조표 항목을 찾지 못했다')
+  return {
+    checks: ids.map((id) => violations[id]
+      ? { id, result: 'violated', where: violations[id].where, note: violations[id].note }
+      : { id, result: 'kept', where: '', note: '시뮬레이션' }),
+    summary: Object.keys(violations).length ? '위반 있음' : '전 항목 지킴',
+  }
+}

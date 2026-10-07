@@ -15,7 +15,10 @@
 | `feature` | 기능 원장. 게이트 통과(verified) → 독립 검증 통과(reviewed) → 기록(passing) | — |
 | `risk` | 위험 파일(결제·인증 등) 변경 시 자동 커밋 대신 사람 승인 | 승인 대기 |
 | `design` | 설계 기준 · 설계 문서 양식 · 문서 검사 · 검사를 통과한 설계만 원장에 | 검사 실패면 원장에 안 들어감 |
-| `review` | 공통·스택 코드 기준, footgun, 변경 diff, 게이트 경고로 독립 검증자 컨텍스트 생성 | 반려는 원장에 기록 |
+| `review` | 공통·스택·프로젝트 기준, 대조표 항목, footgun, 변경 diff, 게이트 경고로 독립 검증자 컨텍스트 생성 | — |
+| `feature review --verdict-json` | 검증자의 대조표를 하네스가 판정: 빠진 항목이나 위반이 있으면 반려 | 반려 |
+| `prompt` | 구현자·검증자 표준 프롬프트. 루프·스킬·사람이 같은 것을 쓴다 | — |
+| `criteria` | 검증 기준 목록, 프로젝트 기준 추가(`.harness/criteria/`) | — |
 | `baseline` | 커밋 없이 운용할 때의 비교 기준 (git 트리 객체, 커밋 아님) | — |
 | `lock` | 빌드 잠금. 같은 트리에서 여러 에이전트가 빌드할 때 | — |
 | `trace` | 노드마다 한 줄 JSONL. 반복 감지·비용·부품 빼 보기 실험의 원천 | — |
@@ -83,8 +86,14 @@ curl -fsSL https://raw.githubusercontent.com/sayoun555/agent-harness/main/instal
    코드 기준은 구현자에게 주입하지 않는다. 검증자의 판정 컨텍스트에 들어가고, 구현자는 `harness review --criteria` 로 볼 수 있다.
    검증 컨텍스트에는 바뀐 파일의 게이트 경고(크기·메서드 수·하드코딩·금지 import)도 들어간다. `rules.sizePolicy: block-growth` 면 새로 만들었거나 이번에 커져서 한도를 넘은 파일이 게이트를 막는다.
    결정론으로 잡을 수 있는 것은 check 게이트가 경고한다: public 메서드 수(K3), 금지된 import(B2, `severity: block` 이면 차단), 하드코딩 URL(K9).
-2. **문서**: `design/templates/design.md` 양식. 완성 정의, 범위 밖, 현재 상태, 설계 결정, 구성 요소, 검증 계획, 기능 분해.
-3. **검사**: `harness design check` 가 빈 절, 사람 결정 대기, 검증 방법이 없는 구성 요소, 잘못된 기능 분해를 잡는다.
+2. **문서**: `design/templates/design.md` 양식. 요구 원천, 완성 정의, 범위 밖, 현재 상태, 설계 결정, 구성 요소, 검증 계획, 기능 분해, 요구 추적.
+3. **검사**: `harness design check` 가 잡는 것:
+   - 빈 절과 사람 결정 대기
+   - 1차 요구 문서가 없는 설계 (파생 문서만으로 설계하지 않는다)
+   - 기능·구성 요소·검증으로 이어지지 않은 요구 ID
+   - 검증 방법이 없는 구성 요소, 잘못된 기능 분해
+
+   요구를 너무 많이 맡은 기능은 경고만 한다. `harness design trace` 로 요구 추적표를 요약한다.
 4. **원장**: `harness design import` 는 검사를 통과한 설계만 원장에 넣는다. 기능마다 설계 문서와 사람이 내린 결정이 붙어서, 구현자와 검증자가 합의된 설계를 따른다.
 
 되돌리기 어려운 결정(스키마·외부 API 계약·인증·공개 URL)은 에이전트가 정하지 않고 사람에게 묻는다.
@@ -136,10 +145,32 @@ GitHub 트리거는 main 에 직접 커밋하지 않고 PR 을 연다. 사람이
 .harness/bin/harness mcp
 ```
 
+## 운용 가이드 — 서브에이전트 비용
+
+서브에이전트는 시작할 때 세션의 CLAUDE.md, 메모리, 켜진 플러그인·MCP 의 스킬과 도구 목록을 모두 싣는다. 기능마다 구현·검증 에이전트를 띄우므로 이 비용이 기능 수만큼 곱해진다.
+
+- **대상 저장소에서 연 세션으로 작업한다.** 다른 저장소에서 연 세션이면 그 저장소의 CLAUDE.md·메모리가 모든 서브에이전트에 실린다.
+- **이 프로젝트에서 쓰지 않는 플러그인·MCP 는 끈다.** 전역으로 켠 것은 `/plugin` 에서 프로젝트 범위로 옮긴다. `claude mcp list` 로 확인한다.
+- **서브에이전트 프롬프트는 한 줄이다.** `harness prompt implement|review ID` 를 실행하라고만 한다. 경위 설명·사용자 발언·스펙 전문을 붙이지 않는다. 표준 프롬프트가 읽을 설계 문서와 절만 가리킨다.
+- **기능을 작게 나눈다.** 설계 검사가 요구를 많이 맡은 기능을 경고한다(`design.maxRequirementsPerFeature`).
+
 ## 설정의 층
 
 `presets/_defaults.json` → `presets/<preset>.json` → `.harness/project.json` 순서로 덮는다. 객체는 깊게 병합, 배열은 교체.
 스택 전용 내용(footgun·판단 기준·테스트 패턴·위험 경로)은 전부 프리셋에 있다. 코어 스크립트와 적대자 프로토콜에는 스택 이름이 나오지 않는다.
+
+## 검증 판정
+
+검증자는 승인·반려를 말하지 않는다. **대조표**를 낸다. 하네스가 그 표로 정한다.
+
+| 반려 사유 | 항목 |
+|---|---|
+| 요구 위반 | REQ |
+| 동작 회귀 | REG |
+| 품질 기준 위반 | 공통 Q1~Q7 · 스택(K·A …) · 프로젝트 `.harness/criteria/` (P …) |
+
+모든 항목에 `kept` · `violated(파일:줄)` · `na` 중 하나를 적는다. 빠진 항목이 있거나 위반이 하나라도 있으면 반려다. 구조 문제는 "사소한 개선" 이 아니라 기준 위반이다.
+같은 반려가 반복되면 `harness criteria add` 로 프로젝트 기준에 쌓는다. 이후 구현 프롬프트와 대조표에 자동으로 들어간다.
 
 ## 사람이 하는 일
 
@@ -169,7 +200,7 @@ GitHub 트리거는 main 에 직접 커밋하지 않고 PR 을 연다. 사람이
 ## 테스트
 
 ```bash
-bash tests/run.sh                     # 결정론 부품 111개
+bash tests/run.sh                     # 결정론 부품 124개
 node tests/workflow-sim.mjs           # 루프 그래프: LLM 만 가짜, 하네스 명령은 실제 실행
 node tests/workflow-sim-parallel.mjs  # 병렬 분기: 실제 git 워크트리, 충돌 포함
 node tests/workflow-sim-ledger.mjs    # 커밋 없는 운용: 커밋 0개 저장소, 같은 트리 병렬, 커밋·ref 0개 확인

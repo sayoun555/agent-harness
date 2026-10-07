@@ -93,7 +93,8 @@
     "criteria": [
       "common.md"
     ],
-    "docsDir": "docs/design"
+    "docsDir": "docs/design",
+    "maxRequirementsPerFeature": 6
   },
   "governingDoc": {
     "_about": "편집 직전에 지배 설계 문서를 알려 준다. 기본은 꺼져 있다(파일럿에서 정확도 효과 ≈0). 예: map: [{globs: [\"*controller*\"], docs: [\"docs/API.md\"]}], alwaysForExtension: {java: [\"AGENTS.md\"]}",

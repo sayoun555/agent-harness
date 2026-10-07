@@ -1,33 +1,18 @@
 #!/usr/bin/env bash
 #
-# design.sh — 설계 기준과 설계 문서. source 전용.
+# design.sh — 설계 문서. source 전용. lib/criteria.sh 가 필요하다.
 #
 # 설계 문서는 design/templates/design.md 양식을 따른다. 이 파일은 그 양식의
 # 절 제목과 표를 읽는다. HTML 주석(<!-- -->)은 안내문이라 내용으로 치지 않는다.
 #
 
 readonly DESIGN_TEMPLATE="$HARNESS_HOME/design/templates/design.md"
-readonly REQUIRED_SECTIONS="완성 정의|범위 밖|현재 상태|설계 결정|구성 요소|검증 계획|기능 분해"
+readonly REQUIRED_SECTIONS="요구 원천|완성 정의|범위 밖|현재 상태|설계 결정|구성 요소|검증 계획|기능 분해|요구 추적"
+readonly OUT_OF_SCOPE="범위 밖"
 readonly TEXT_SECTIONS="완성 정의|범위 밖|현재 상태"
 readonly DECISION_PENDING="사람 결정 필요"
 
-# ── 기준 ────────────────────────────────────────────────────────────
-# 이름만 있으면 하네스의 design/criteria/, 경로(/ 포함)면 프로젝트 기준
-criteria_file_for() {
-  case "$1" in
-    */*) project_path "$1" ;;
-    *)   printf '%s/design/criteria/%s\n' "$HARNESS_HOME" "$1" ;;
-  esac
-}
-
-print_design_criteria() {
-  local entry file
-  while IFS= read -r entry; do
-    [[ -z "$entry" ]] && continue
-    file="$(criteria_file_for "$entry")"
-    if [[ -f "$file" ]]; then cat "$file"; echo; else info "⚠️ 설계 기준 파일이 없다: $file"; fi
-  done < <(cfg_lines '.design.criteria')
-}
+# ── 기준 ── lib/criteria.sh 에 있다 (design_criteria_files · print_design_criteria)
 
 design_docs_dir() { project_path "$(cfg '.design.docsDir')"; }
 
@@ -85,8 +70,10 @@ human_decisions_json() {  # human_decisions_json <doc>
 # ── 검사 ────────────────────────────────────────────────────────────
 DESIGN_PROBLEMS=()
 DESIGN_UNRESOLVED=()
+DESIGN_WARNINGS=()
 
 problem() { DESIGN_PROBLEMS+=("$1"); }
+warning() { DESIGN_WARNINGS+=("$1"); }
 
 check_required_sections() {
   local doc="$1" section
@@ -139,12 +126,69 @@ check_feature_breakdown() {
   return 0
 }
 
-check_design_doc() {  # check_design_doc <doc> → DESIGN_PROBLEMS, DESIGN_UNRESOLVED 를 채운다
+# 1차 요구 문서가 있어야 한다. 파생 문서만으로 설계하면 원본 요구를 빠뜨린다.
+check_requirement_sources() {
+  local doc="$1" source edition kind scope primary=0 count=0
+  while IFS=$'\t' read -r source edition kind scope; do
+    [[ -z "$source$edition$kind" ]] && continue
+    count=$((count + 1))
+    case "$kind" in
+      1차) primary=$((primary + 1)) ;;
+      파생) ;;
+      *) problem "요구 원천 '$source' 의 종류가 올바르지 않다: '$kind' (1차 · 파생)" ;;
+    esac
+    [[ -z "$edition" ]] && problem "요구 원천 '$source' 에 판·날짜가 없다"
+  done < <(table_rows "$doc" "요구 원천")
+  [[ "$count" -eq 0 ]] && { problem "요구 원천이 비어 있다 — 1차 요구 문서를 적는다"; return 0; }
+  [[ "$primary" -eq 0 ]] && problem "1차 요구 문서가 없다 — 파생 문서만으로 설계하지 않는다"
+  return 0
+}
+
+# 요구 ID 마다 기능(또는 범위 밖)·구성 요소·검증이 이어져야 한다.
+check_requirement_trace() {
+  local doc="$1" features components req source component feature verify count=0 seen=""
+  features="$(table_rows "$doc" "기능 분해" | cut -f1)"
+  components="$(table_rows "$doc" "구성 요소" | cut -f1)"
+  while IFS=$'\t' read -r req source component feature verify; do
+    [[ -z "$req" ]] && continue
+    count=$((count + 1))
+    grep -qxF -- "$req" <<<"$seen" && problem "요구 추적에 같은 요구 ID 가 두 번 있다: $req"
+    seen="$seen"$'\n'"$req"
+    if [[ "$feature" == "$OUT_OF_SCOPE" ]]; then continue; fi
+    [[ -z "$feature" ]] && { problem "요구 $req 가 어느 기능에도 이어지지 않는다 (기능 id 또는 \"$OUT_OF_SCOPE\")"; continue; }
+    grep -qxF -- "$feature" <<<"$features" || problem "요구 $req 의 기능 '$feature' 가 기능 분해에 없다"
+    grep -qxF -- "$component" <<<"$components" || problem "요구 $req 의 구성 요소 '$component' 가 구성 요소 표에 없다"
+    [[ -z "$verify" ]] && problem "요구 $req 의 검증 방법이 없다"
+  done < <(table_rows "$doc" "요구 추적")
+  [[ "$count" -eq 0 ]] && problem "요구 추적이 비어 있다 — 1차 문서의 요구 ID 마다 한 줄"
+  return 0
+}
+
+# 기능 하나가 너무 많은 요구를 맡거나, 요구 없이 생긴 기능은 경고만 한다 (막지는 않는다).
+check_feature_load() {
+  local doc="$1" limit feature count
+  limit="$(cfg '.design.maxRequirementsPerFeature')"
+  while IFS=$'\t' read -r count feature; do
+    [[ -n "$limit" && "$count" -gt "$limit" ]] && warning "기능 $feature 가 요구 ${count}개를 맡는다 (> $limit) — 나눠서 한 에이전트에 몰리지 않게 한다"
+  done < <(table_rows "$doc" "요구 추적" | cut -f4 | grep -vxF "$OUT_OF_SCOPE" | awk 'NF' | sort | uniq -c | awk '{ printf "%s\t%s\n", $1, $2 }')
+  while IFS= read -r feature; do
+    [[ -z "$feature" ]] && continue
+    table_rows "$doc" "요구 추적" | cut -f4 | grep -qxF -- "$feature" \
+      || warning "기능 $feature 는 어느 요구에도 이어지지 않는다 — 기반 작업(테스트 환경 등)이 아니면 요구 추적에 적는다"
+  done < <(table_rows "$doc" "기능 분해" | cut -f1)
+  return 0
+}
+
+check_design_doc() {  # check_design_doc <doc> → DESIGN_PROBLEMS · DESIGN_UNRESOLVED · DESIGN_WARNINGS
   local doc="$1"
   DESIGN_PROBLEMS=()
   DESIGN_UNRESOLVED=()
+  DESIGN_WARNINGS=()
   check_required_sections "$doc"
+  check_requirement_sources "$doc"
   check_decisions "$doc"
   check_components_are_verifiable "$doc"
   check_feature_breakdown "$doc"
+  check_requirement_trace "$doc"
+  check_feature_load "$doc"
 }
