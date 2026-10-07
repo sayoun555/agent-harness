@@ -9,8 +9,13 @@ cmd_record() {
   [[ -n "$id" ]] || die "$EXIT_USAGE" "사용: feature record ID"
   require_features_file; require_feature "$id"
   require_status "$id" "$STATUS_REVIEWED"
-  local json_mode risky
+  require_sole_owner "$id"
+  local json_mode risky problem
   json_mode="$(json_mode_of "$@")"
+
+  problem="$(unrecordable_reason "$id")"
+  if [[ -n "$problem" ]]; then reopen_feature "$id" record "$json_mode" "$problem"; return; fi
+
   scope_of "$id"
 
   risky="$(risky_changed_files ${SCOPE[@]+"${SCOPE[@]}"})"
@@ -41,6 +46,7 @@ cmd_approve() {
   [[ -n "$id" ]] || die "$EXIT_USAGE" "사용: feature approve ID"
   require_features_file; require_feature "$id"
   require_status "$id" "$STATUS_AWAITING"
+  require_sole_owner "$id"
   # 커밋 운용에서는 승인 커밋에 남의 변경이 섞이지 않도록 깨끗한 트리가 필요하다.
   if auto_commit_enabled && has_changes_outside_ledger; then
     die "$EXIT_USAGE" "작업 트리가 깨끗하지 않다 — 승인 전에 커밋하거나 stash 한다"

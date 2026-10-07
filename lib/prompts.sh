@@ -97,9 +97,11 @@ implement_prompt() {  # implement_prompt <id> <mode>
 }
 
 # 구현 프롬프트를 낼 때의 기준 버전을 원장에 남긴다. 검증 때 기준이 바뀌었으면 알린다.
-remember_criteria_at_implementation() {  # remember_criteria_at_implementation <id>
-  set_feature_fields "$1" "$(jq -cn --arg v "$(criteria_version)" --argjson ids "$(criteria_ids_json)" \
-    '{implementedUnder: {criteriaVersion: $v, criteriaIds: $ids}}')"
+# 구현을 시작했다고 남긴다: 그때의 기준(버전·항목)과 구현 위치(mode).
+# mode 가 isolated 면 변경은 자기 워크트리에 있다. 그 밖이면 이 작업 트리에 쌓인다(lib/record.sh 의 소유권 판단).
+remember_implementation_start() {  # remember_implementation_start <id> <mode>
+  set_feature_fields "$1" "$(jq -cn --arg v "$(criteria_version)" --argjson ids "$(criteria_ids_json)" --arg mode "$2" \
+    '{implementedUnder: {criteriaVersion: $v, criteriaIds: $ids, mode: $mode}}')"
 }
 
 # 구현 시점 기준과 지금 기준이 다르면 한 단락 (같으면 빈 출력)
@@ -123,7 +125,7 @@ emit_implement_prompt() {
   mode="${mode:-sequential}"
   [[ "$mode" =~ ^($IMPLEMENT_MODES)$ ]] || die "$EXIT_USAGE" "--mode 는 sequential · isolated · shared"
   prompt="$(implement_prompt "$id" "$mode")"
-  remember_criteria_at_implementation "$id"
+  remember_implementation_start "$id" "$mode"
   emit "$(json_mode_of "$@")" "$(jq -cn --arg id "$id" --arg mode "$mode" --arg p "$prompt" '{id: $id, mode: $mode, prompt: $p}')" "$prompt"
 }
 
@@ -134,8 +136,9 @@ review_prompt_header() {  # review_prompt_header <id>
   cat <<HEADER
 너는 기능 $1 을 구현하지 않은 독립 검증자다. 파일을 고치거나 커밋하지 않는다.
 아래 프로토콜·기준·대조표 항목·변경을 읽고, 바뀐 파일은 직접 열어 확인한 뒤 대조표를 낸다.
-루프 밖에서 혼자 실행할 때는 대조표 JSON 을 파일로 저장해 제출한다:
-  .harness/bin/harness feature review $1 --verdict-file <그 파일>
+루프 밖에서 혼자 실행할 때는 대조표 JSON 을 .harness/verdicts/$1.json 에 저장해 제출한다
+(작업 트리의 다른 곳에 파일을 만들면 "게이트 후 변경됨" 으로 반려된다):
+  .harness/bin/harness feature review $1 --verdict-file .harness/verdicts/$1.json
 
 HEADER
 }

@@ -48,11 +48,13 @@ cmd_verify() {
   [[ -n "$id" ]] || die "$EXIT_USAGE" "사용: feature verify ID"
   require_features_file; require_feature "$id"
   require_status "$id" "$STATUS_PENDING" "$STATUS_VERIFIED"
+  require_sole_owner "$id"
   local json_mode status reason
   json_mode="$(json_mode_of "$@")"
 
   if run_gates "$id"; then
-    set_feature_fields "$id" '{"status":"verified","repeats":0,"lastFailure":"","lastFailureDetail":"","lastFailureFingerprint":""}'
+    set_feature_fields "$id" "$(jq -cn --arg c "$(change_fingerprint "$id")" \
+      '{status: "verified", repeats: 0, lastFailure: "", lastFailureDetail: "", lastFailureFingerprint: "", verifiedChange: $c}')"
     trace_add verify "$(jq -cn --arg id "$id" '{feature: $id, result: "pass"}')"
     emit "$json_mode" "$(result_json "$id" pass "모든 게이트 통과")" "✅ verify $id: 통과 → verified (다음: 독립 검증)"
     [[ "$json_mode" -eq 0 ]] && criteria_change_notice "$id" >&2
@@ -75,7 +77,8 @@ cmd_verify() {
 #   --approve · --reject 는 사람이 직접 판정할 때 쓴다.
 approve_review() {  # approve_review <id> <json-mode> <reason>
   local id="$1" reason="${3:-승인}"
-  set_feature_fields "$id" "$(jq -cn --arg r "$reason" '{status: "reviewed", reviewNote: $r}')"
+  set_feature_fields "$id" "$(jq -cn --arg r "$reason" --arg c "$(change_fingerprint "$id")" \
+    '{status: "reviewed", reviewNote: $r, reviewedChange: $c}')"
   trace_add review "$(jq -cn --arg id "$id" --arg r "$reason" '{feature: $id, result: "approve", reason: $r}')"
   emit "$2" "$(result_json "$id" approve "$reason")" "✅ review $id: 승인 → reviewed (다음: record)"
 }
@@ -106,12 +109,15 @@ review_by_checklist() {  # review_by_checklist <id> <json-mode> <대조표>
 
 cmd_review() {
   local id="${1:-}"; shift || true
-  local reason json_mode verdict
+  local reason json_mode verdict problem
   reason="$(flag_value --reason "$@")"
   json_mode="$(json_mode_of "$@")"
   [[ -n "$id" ]] || die "$EXIT_USAGE" "사용: feature review ID (--verdict-json JSON | --verdict-file 파일 | --approve [--reason 근거] | --reject --reason 이유)"
   require_features_file; require_feature "$id"
   require_status "$id" "$STATUS_VERIFIED"
+  require_sole_owner "$id"
+  problem="$(changed_since "$id" verifiedChange "게이트")"
+  if [[ -n "$problem" ]]; then reopen_feature "$id" review "$json_mode" "$problem"; return; fi
   verdict="$(verdict_from_args "$@")"
   if [[ -n "$verdict" ]]; then review_by_checklist "$id" "$json_mode" "$verdict"; return; fi
   if has_flag --approve "$@"; then approve_review "$id" "$json_mode" "$reason"; return; fi

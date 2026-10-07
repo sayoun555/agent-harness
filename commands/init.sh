@@ -22,9 +22,9 @@ set -euo pipefail
 source "$HARNESS_HOME/lib/common.sh"
 source "$HARNESS_HOME/lib/shim.sh"
 source "$HARNESS_HOME/lib/mcp.sh"
+source "$HARNESS_HOME/lib/agents.sh"
 require_commands git jq
 
-readonly PLUGIN_ID="agent-harness@agent-harness"
 readonly MARKETPLACE_NAME="agent-harness"
 readonly MARKETPLACE_REPO="sayoun555/agent-harness"
 
@@ -170,8 +170,8 @@ enable_plugin_for_project() {
   json_update "$settings" '
     .extraKnownMarketplaces[$market] = {source: {source: "github", repo: $repo}}
     | .enabledPlugins[$plugin] = true' \
-    --arg market "$MARKETPLACE_NAME" --arg repo "$MARKETPLACE_REPO" --arg plugin "$PLUGIN_ID"
-  info "✅ $(relative_to_root "$settings") — 이 프로젝트에서만 $PLUGIN_ID 활성화"
+    --arg market "$MARKETPLACE_NAME" --arg repo "$MARKETPLACE_REPO" --arg plugin "$HARNESS_PLUGIN_ID"
+  info "✅ $(relative_to_root "$settings") — 이 프로젝트에서만 $HARNESS_PLUGIN_ID 활성화"
 }
 
 install_git_hooks() {

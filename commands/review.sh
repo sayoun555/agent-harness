@@ -85,9 +85,22 @@ print_change_section() {  # print_change_section <id>
   deleted_files ${SCOPE[@]+"${SCOPE[@]}"} | sed 's/^/- (삭제) /'
   echo
   echo "## diff ($label 대비)"
+  print_limited_diff "$(cfg '.review.maxDiffLines')" ${SCOPE[@]+"${SCOPE[@]}"}
+}
+
+# diff 를 파일에 먼저 쓰고 자른다. 파이프로 head 에 물리면 head 가 먼저 끝날 때 git 이 SIGPIPE 로 죽고,
+# pipefail 때문에 프롬프트 전체가 빈 채로 끝난다.
+print_limited_diff() {  # print_limited_diff <최대 줄> [paths...]
+  local limit="$1" diff_file total; shift
+  diff_file="$(mktemp)"
+  print_change_diff "$@" > "$diff_file"
+  total="$(wc -l < "$diff_file" | tr -d ' ')"
   echo '```diff'
-  print_change_diff ${SCOPE[@]+"${SCOPE[@]}"} | head -n "$(cfg '.review.maxDiffLines')"
+  head -n "$limit" "$diff_file"
   echo '```'
+  rm -f "$diff_file"
+  (( total > limit )) && echo "(diff ${total}줄 중 ${limit}줄만 보였다. 나머지는 바뀐 파일을 직접 Read 한다)"
+  return 0
 }
 
 # 기능이 설계 문서에서 왔으면, 합의된 설계 결정과 어긋났는지도 본다
@@ -124,7 +137,7 @@ detect_llm_cli() {
 }
 
 target_files() {
-  if [[ $# -gt 0 ]]; then printf '%s\n' "$@"; else git diff --cached --name-only --diff-filter=ACM; fi
+  if [[ $# -gt 0 ]]; then printf '%s\n' "$@"; else changed_files; fi   # 인자가 없으면 기준 대비 바뀐 파일 (check 와 같다)
 }
 
 build_file_prompt() {  # build_file_prompt <files...>

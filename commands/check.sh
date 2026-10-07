@@ -6,14 +6,16 @@
 #   금지된 import(rules.forbiddenImports) = 기본 경고, severity 가 block 이면 차단.
 #   의미 위반(설계·footgun)은 review 가 본다.
 #
-#   harness check            staged 파일 (pre-commit)
-#   harness check --all      추적 중인 전체 소스 (pre-push·CI)
+#   harness check            기준(HEAD 또는 기준선) 대비 바뀐 파일 — 다른 명령과 같은 비교
+#   harness check --staged   staged 파일 (pre-commit)
+#   harness check --all      전체 소스: 추적 중 + untracked(ignore 제외) (pre-push·CI)
 #   harness check 파일...     지정 파일 (에디터 훅)
 #   HARNESS_STRICT=1         경고도 차단
 #
 set -euo pipefail
 source "$HARNESS_HOME/lib/common.sh"
 source "$HARNESS_HOME/lib/source.sh"
+source "$HARNESS_HOME/lib/changes.sh"
 require_commands git jq
 project_is_plugged_in || { info "harness check: 이 프로젝트에 하네스가 없다 — 건너뜀"; exit 0; }
 cd "$PROJECT_ROOT"
@@ -27,19 +29,20 @@ MAX_PUBLIC_METHODS="$(cfg '.rules.maxPublicMethods')"
 
 candidate_files() {
   case "${1:-}" in
-    --all) git ls-files ;;
-    "")    git diff --cached --name-only --diff-filter=ACM ;;
+    --all)    git ls-files -co --exclude-standard -- . "$HARNESS_PATHSPEC" ;;
+    --staged) git diff --cached --name-only --diff-filter=ACM ;;
+    "")       changed_files ;;
     *)     printf '%s\n' "$@" ;;
   esac
 }
 
 # ── 개별 검사: 위반이면 메시지를 출력하고 0 을 반환 ──────────────────
 find_stub_markers() {
-  [[ -n "$STUB_RE" ]] && grep -nIE "$STUB_RE" "$1" 2>/dev/null | head -3
+  [[ -n "$STUB_RE" ]] && grep -m 3 -nIE "$STUB_RE" "$1" 2>/dev/null
 }
 
 find_soft_markers() {
-  [[ -n "$SOFT_MARKER_RE" ]] && grep -nIE "$SOFT_MARKER_RE" "$1" 2>/dev/null | head -3
+  [[ -n "$SOFT_MARKER_RE" ]] && grep -m 3 -nIE "$SOFT_MARKER_RE" "$1" 2>/dev/null
 }
 
 find_hardcoded_secrets() {
@@ -47,7 +50,7 @@ find_hardcoded_secrets() {
   local hits
   hits="$(grep -nIiE "$SECRET_RE" "$1" 2>/dev/null || true)"
   [[ -n "$hits" && -n "$SECRET_EXCLUDE_RE" ]] && hits="$(grep -viE "$SECRET_EXCLUDE_RE" <<<"$hits" || true)"
-  printf '%s' "$hits" | head -3
+  [[ -z "$hits" ]] || head -3 <<<"$hits"
 }
 
 line_count() { wc -l < "$1" | tr -d ' '; }
@@ -62,7 +65,7 @@ warn_hardcodes() {  # warn_hardcodes <file>
     id="$(jq -r .id <<<"$rule")"
     pattern="$(jq -r .pattern <<<"$rule")"
     message="$(jq -r .message <<<"$rule")"
-    hits="$(grep -nIE -- "$pattern" "$file" 2>/dev/null | head -3 || true)"
+    hits="$(grep -m 3 -nIE -- "$pattern" "$file" 2>/dev/null || true)"
     [[ -z "$hits" ]] && continue
     printf '⚠️ [hardcode:%s] %s — %s\n' "$id" "$file" "$message"
     sed 's/^/      /' <<<"$hits"
@@ -89,7 +92,7 @@ check_forbidden_imports() {  # check_forbidden_imports <file>
     glob="$(jq -r .files <<<"$rule")"
     path_matches_any "$file" "$glob" || continue
     pattern="$(jq -r .pattern <<<"$rule")"
-    hits="$(grep -nE -- "$pattern" "$file" 2>/dev/null | head -3 || true)"
+    hits="$(grep -m 3 -nE -- "$pattern" "$file" 2>/dev/null || true)"
     [[ -z "$hits" ]] && continue
     if [[ "$(jq -r '.severity // "warn"' <<<"$rule")" == "block" ]]; then
       report_block "import:$(jq -r .id <<<"$rule")" "$file" "$(jq -r .message <<<"$rule")"$'\n'"$hits"

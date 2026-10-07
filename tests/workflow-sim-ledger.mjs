@@ -34,6 +34,7 @@ const sharedPrompts = []
 
 async function agent(prompt, opts = {}) {
   const keys = schemaKeys(opts)
+  assert.equal(opts.agentType, undefined, '플러그인이 꺼져 있으면(--no-plugin) 기본 에이전트를 쓴다')
   if (keys.includes('exitCode')) return runCommandNode(project, prompt)
   const id = featureIdOf(prompt)
   if (keys.includes('filesChanged')) {

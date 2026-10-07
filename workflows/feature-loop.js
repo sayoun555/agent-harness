@@ -98,6 +98,11 @@ function lastJsonLine(stdout) {
 
 let currentPhase = 'Preflight'
 
+// 플러그인이 켜져 있으면 preflight 가 하네스 전용 에이전트 이름을 준다 (도구를 필요한 것만 가진 정의).
+// 없으면 기본 에이전트를 쓴다.
+let AGENTS = {}
+function agentTypeOf(role) { return AGENTS[role] ? { agentType: AGENTS[role] } : {} }
+
 async function runHarness(command, label) {
   const result = await agent(
     [
@@ -106,7 +111,7 @@ async function runHarness(command, label) {
       '',
       `${HARNESS} ${command}`,
     ].join('\n'),
-    { label, phase: currentPhase, schema: COMMAND_RESULT, effort: 'low' }
+    { label, phase: currentPhase, schema: COMMAND_RESULT, effort: 'low', ...agentTypeOf('runner') }
   )
   return result ? lastJsonLine(result.stdout) : null
 }
@@ -157,7 +162,9 @@ async function gateReviewRecord(feature, iteration) {
   }
 
   // 검증자가 응답하지 않으면 빈 대조표를 낸다. 하네스가 "빠진 항목" 으로 반려한다.
-  const verdict = await agent(reviewPrompt(feature), { label: `검증:${tag}`, phase: 'Loop', schema: VERDICT })
+  // 실제 화면을 MCP 로 확인하라는 지시가 붙으면, MCP 도구가 없는 전용 검증자 대신 기본 에이전트를 쓴다.
+  const reviewer = runtimeHints.length ? {} : agentTypeOf('reviewer')
+  const verdict = await agent(reviewPrompt(feature), { label: `검증:${tag}`, phase: 'Loop', schema: VERDICT, ...reviewer })
     || { checks: [], summary: '검증자 응답 없음' }
   const reviewed = await runHarness(
     `feature review ${feature.id} --verdict-json ${shellQuote(JSON.stringify(verdict))} --json`, `판정:${tag}`)
@@ -170,7 +177,7 @@ async function gateReviewRecord(feature, iteration) {
 }
 
 function implement(feature, mode, schema, extra = {}) {
-  return agent(implementPrompt(feature, mode), { label: `구현:${tagOf(feature)}`, phase: 'Loop', schema, ...extra })
+  return agent(implementPrompt(feature, mode), { label: `구현:${tagOf(feature)}`, phase: 'Loop', schema, ...agentTypeOf('implementer'), ...extra })
 }
 
 // ── 한 바퀴: 순차 ──────────────────────────────────────────────────
@@ -222,6 +229,8 @@ if (!preflight || !preflight.ok) {
 }
 for (const note of preflight.notes || []) log(note)
 const AUTO_COMMIT = preflight.autoCommit !== false
+AGENTS = preflight.agents || {}
+if (AGENTS.implementer) log('하네스 전용 에이전트 사용 (도구를 필요한 것만 가진 정의)')
 const mcp = Array.isArray(preflight.mcp) ? preflight.mcp : []
 runtimeHints = mcp.filter((m) => m.state === 'connected' && m.reviewHint).map((m) => m.reviewHint)
 const mcpSuggestions = mcp.filter((m) => m.state !== 'connected')

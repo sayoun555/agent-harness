@@ -356,6 +356,16 @@ test_feature_audit_detects_regression() {
   assert_eq "$(status_of sub)" "pending"
 }
 
+test_preflight_reports_plugin_agents_only_when_enabled() {
+  add_feature sub "빼기" 'true'
+  mkdir -p .claude
+  echo '{}' > .claude/settings.json; echo '{}' > .claude/settings.local.json
+  assert_eq "$(h feature preflight --json | jq -c .agents)" "{}" "(플러그인이 꺼져 있으면 기본 에이전트)"
+  echo '{"enabledPlugins": {"agent-harness@agent-harness": true}}' > .claude/settings.local.json
+  assert_eq "$(h feature preflight --json | jq -r '.agents | [.runner, .implementer, .reviewer] | join(" ")')" \
+    "agent-harness:harness-runner agent-harness:harness-implementer agent-harness:harness-reviewer"
+}
+
 test_feature_preflight_rejects_dirty_tree() {
   add_feature sub "빼기" 'true'
   assert_exit 0 h feature preflight
@@ -1001,6 +1011,7 @@ test_adopt_is_refused_in_ledger_mode() {
 
 test_feature_commit_is_an_alias_of_record() {
   add_feature sub "빼기" 'true'
+  echo 'export const sub = (a, b) => a - b;' >> src/math.js
   verify_and_review sub
   assert_exit 0 h feature commit sub
   assert_eq "$(status_of sub)" "passing"
@@ -1059,8 +1070,9 @@ test_review_checklist_bad_shape_rejects() {
 test_review_checklist_from_file() {
   add_feature sub "빼기" 'true'
   h feature verify sub >/dev/null 2>&1
-  full_checklist sub > verdict.json
-  assert_exit 0 h feature review sub --verdict-file verdict.json
+  mkdir -p .harness/verdicts
+  full_checklist sub > .harness/verdicts/sub.json   # 검증 프롬프트가 알려 주는 자리 (비교 대상 밖)
+  assert_exit 0 h feature review sub --verdict-file .harness/verdicts/sub.json
   assert_eq "$(status_of sub)" "reviewed"
 }
 
@@ -1159,6 +1171,103 @@ test_hook_warns_when_editing_verified_file() {
   local out
   out="$(hook_input "$PWD/src/math.js" | CLAUDE_PROJECT_DIR="$PWD" h hook post-edit)"
   assert_contains "$(jq -r .hookSpecificOutput.additionalContext <<<"$out")" "이미 검증을 통과한 기능(sub)의 파일이다"
+}
+
+# ── 같은 트리의 기록·보관 (현장 보고 D) ─────────────────────────────
+test_unscoped_feature_stops_when_another_is_in_this_tree() {
+  use_ledger_mode
+  jq '.approval.riskGlobs = ["*payment*"]' .harness/project.json > p && mv p .harness/project.json
+  add_feature a "에이" 'true'
+  add_feature b "비" 'true'
+  h feature preflight >/dev/null 2>&1
+  h prompt implement a >/dev/null; echo 'a' > src/a.js
+  h prompt implement b >/dev/null; echo 'pay' > src/payment.js
+  assert_exit 2 h feature verify a   # b 가 같은 트리에서 구현 중이다
+  assert_contains "$(h feature verify a 2>&1)" "범위 미지정 — 기록 전인 다른 기능(b)"
+  assert_eq "$(status_of a)" "pending"
+  assert_eq "$(ls src | tr '\n' ' ')" "a.js math.js payment.js " "(아무 파일도 치우지 않았다)"
+  assert_eq "$(ls .harness/parked 2>/dev/null)" ""
+}
+
+test_review_reopens_when_tree_changed_after_gate() {
+  use_ledger_mode
+  jq '.approval.riskGlobs = ["*payment*"]' .harness/project.json > p && mv p .harness/project.json
+  add_feature a "에이" 'true'
+  h feature preflight >/dev/null 2>&1
+  echo 'a' > src/a.js
+  h feature verify a >/dev/null 2>&1
+  echo 'pay' > src/payment.js   # 프롬프트 없이 손으로 다른 작업이 섞였다
+  assert_exit 1 h feature review a --approve
+  assert_eq "$(field_of a lastFailure)" "게이트 후 변경됨 — 게이트 때 본 변경과 지금 트리가 다르다"
+  assert_eq "$(ls .harness/parked 2>/dev/null)" ""
+}
+
+test_claimed_features_record_in_the_same_tree() {
+  use_ledger_mode
+  add_feature a "에이" 'true'
+  add_feature b "비" 'true'
+  h feature preflight >/dev/null 2>&1
+  echo 'a' > src/a.js; echo 'b' > src/b.js
+  h feature claim a --files src/a.js >/dev/null
+  h feature claim b --files src/b.js >/dev/null
+  verify_and_review a; verify_and_review b
+  assert_exit 0 h feature record a
+  assert_exit 0 h feature record b
+  assert_eq "$(status_of b)" "passing"
+}
+
+test_record_refuses_when_reviewed_change_is_gone() {
+  use_ledger_mode
+  add_feature sub "빼기" 'true'
+  h feature preflight >/dev/null 2>&1
+  echo 'export const sub = (a, b) => a - b;' > src/sub.js
+  verify_and_review sub
+  rm src/sub.js
+  assert_exit 1 h feature record sub
+  assert_eq "$(status_of sub)" "pending"
+  assert_eq "$(field_of sub lastFailure)" "기록할 변경이 없다 — 변경이 다른 기능에 보관됐거나 되돌려졌다"
+}
+
+test_record_refuses_when_changed_after_review() {
+  add_feature sub "빼기" 'true'
+  echo 'export const sub = (a, b) => a - b;' >> src/math.js
+  verify_and_review sub
+  echo '// 검토 뒤 손질' >> src/math.js
+  assert_exit 1 h feature record sub
+  assert_eq "$(field_of sub lastFailure)" "검토 후 변경됨 — 검토 때 본 변경과 지금 트리가 다르다"
+}
+
+test_review_prompt_survives_diff_larger_than_limit() {
+  jq '.review.maxDiffLines = 5' .harness/project.json > p && mv p .harness/project.json
+  add_feature a "에이" 'true'
+  big_file src/Big.kt 20000
+  h feature verify a >/dev/null 2>&1
+  local out
+  out="$(h prompt review a)"
+  assert_contains "$out" "## 대조표 항목"
+  assert_contains "$out" "줄 중 5줄만 보였다"
+}
+
+test_gitignored_harness_dir_does_not_warn() {
+  use_ledger_mode
+  echo ".harness" > .gitignore
+  add_feature sub "빼기" 'true'
+  h feature preflight >/dev/null 2>&1
+  echo 'x' > src/sub.js
+  local out
+  out="$(h feature verify sub 2>&1)"
+  [[ "$out" != *"ignored"* ]] || fail "ignore 경고가 나왔다: $out"
+}
+
+test_check_sees_untracked_files_without_commits() {
+  use_ledger_mode
+  drop_all_commits
+  git rm -q -r --cached . >/dev/null
+  h feature preflight >/dev/null 2>&1
+  echo '// TODO: 나중에' > src/stub.js
+  assert_exit 1 h check
+  assert_exit 1 h check --all
+  assert_exit 0 h check --staged
 }
 
 # ── 실행 렌즈 ───────────────────────────────────────────────────────
@@ -1359,6 +1468,7 @@ test_size_policy_block_growth_blocks_only_grown_files() {
   add_feature a "에이" 'true'
   echo "// 작은 수정" > src/small.kt
   assert_exit 0 h feature verify a "(손대지 않은 기존 큰 파일은 막지 않는다)"
+  h feature review a --approve >/dev/null && h feature record a >/dev/null
   add_feature b "비" 'true'
   big_file src/Old.kt 31
   assert_exit 1 h feature verify b

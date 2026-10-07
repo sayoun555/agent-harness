@@ -110,6 +110,9 @@ curl -fsSL https://raw.githubusercontent.com/sayoun555/agent-harness/main/instal
 | 막힘·승인 대기 기능의 변경 | `harness/<id>` 브랜치에 보관 | `.harness/parked/<id>.patch` 에 보관 |
 | 병렬 | 각자 워크트리 | 같은 트리 + 기능별 범위(claim) + 빌드 잠금 |
 
+**같은 트리의 소유권.** 범위(claim)가 없는 기능은 작업 트리 전체를 자기 변경으로 본다. 그래서 같은 트리에 기록 전인 다른 기능이 있으면(검증·검토를 통과했거나, 이 트리에서 구현을 시작한 기능) 게이트·검증·기록이 아무것도 건드리지 않고 멈춘다. 여러 기능을 같은 트리에서 동시에 하려면 claim 으로 범위를 나눈다.
+**단계마다 같은 변경.** 게이트를 통과할 때와 검토를 승인할 때 변경의 해시를 남긴다. 다음 단계에서 다르면 대기열로 되돌린다. 기록할 변경이 비어 있어도 되돌린다("변경 없음 = 이상").
+
 두 방식 모두 비교는 git 트리 두 개의 diff 라서, 커밋이 0개인 저장소에서도 새 파일·스테이징·untracked 를 모두 본다.
 **루프를 쓰지 않아도** 기능마다 구현과 검증은 서로 다른 서브에이전트가 한다 (스킬 2B, `feature brief` → `verify` → 검증 서브에이전트 → `review` → `record`).
 
@@ -152,6 +155,15 @@ GitHub 트리거는 main 에 직접 커밋하지 않고 PR 을 연다. 사람이
 
 서브에이전트는 시작할 때 세션의 CLAUDE.md, 메모리, 켜진 플러그인·MCP 의 스킬과 도구 목록을 모두 싣는다. 기능마다 구현·검증 에이전트를 띄우므로 이 비용이 기능 수만큼 곱해진다.
 
+- **하네스 전용 에이전트 정의를 쓴다.** 플러그인의 `agents/` 에 명령 실행·구현·검증용 정의가 있다. 도구를 필요한 것만 가져서 켜진 플러그인·MCP 의 스킬과 도구 목록이 실리지 않는다. 플러그인을 이 프로젝트에서 켜면 루프가 알아서 쓴다. 실측(플러그인 5개 · MCP 18개 환경, 빈 지시):
+
+  | 서브에이전트 | 시작 토큰 |
+  |---|---|
+  | 기본(general-purpose) | 21,701 |
+  | `agent-harness:harness-implementer` | 4,065 |
+  | `agent-harness:harness-reviewer` | 3,511 |
+
+  프로젝트 CLAUDE.md 는 그대로 실린다. 검증자가 MCP 로 화면을 봐야 할 때만 기본 에이전트로 띄운다.
 - **대상 저장소에서 연 세션으로 작업한다.** 다른 저장소에서 연 세션이면 그 저장소의 CLAUDE.md·메모리가 모든 서브에이전트에 실린다.
 - **이 프로젝트에서 쓰지 않는 플러그인·MCP 는 끈다.** 전역으로 켠 것은 `/plugin` 에서 프로젝트 범위로 옮긴다. `claude mcp list` 로 확인한다.
 - **서브에이전트는 한 번 쓰고 버린다.** 시도마다 새 구현자, 검증마다 새 검증자. 끝난 에이전트에 후속 지시를 이어 붙이면 앞 맥락이 쌓여 비용이 늘고 판단이 흐려진다. 표준 프롬프트 머리에 "기능 · 시도 N · 구현|검증 전용" 이 찍힌다.
@@ -202,11 +214,12 @@ GitHub 트리거는 main 에 직접 커밋하지 않고 PR 을 연다. 사람이
 
 왜 이렇게 만들었는지는 [docs/research/](docs/research/README.md) 에 있다. 논문과 신뢰도 티어, 업계 자료, 이전 하네스의 파일럿 측정, 베이스 평가, 결정마다의 근거 강도.
 구조는 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+현장 보고와 그에 따른 변경은 [docs/field-reports.md](docs/field-reports.md).
 
 ## 테스트
 
 ```bash
-bash tests/run.sh                     # 결정론 부품 133개
+bash tests/run.sh                     # 결정론 부품 142개
 node tests/workflow-sim.mjs           # 루프 그래프: LLM 만 가짜, 하네스 명령은 실제 실행
 node tests/workflow-sim-parallel.mjs  # 병렬 분기: 실제 git 워크트리, 충돌 포함
 node tests/workflow-sim-ledger.mjs    # 커밋 없는 운용: 커밋 0개 저장소, 같은 트리 병렬, 커밋·ref 0개 확인

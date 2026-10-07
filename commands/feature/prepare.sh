@@ -89,7 +89,8 @@ cmd_preflight() {
   emit "$(json_mode_of "$@")" \
     "$(jq -cn --argjson ok "$ok" --argjson problems "$problems_json" --argjson notes "$notes_json" --argjson mcp "$mcp_json" \
        --argjson parallel "$(cfg '.loop.parallel')" --argjson autoCommit "$(auto_commit_enabled && echo true || echo false)" \
-       '{ok: $ok, problems: $problems, notes: $notes, mcp: $mcp, parallel: $parallel, autoCommit: $autoCommit}')" \
+       --argjson agents "$(plugin_agents_json)" \
+       '{ok: $ok, problems: $problems, notes: $notes, mcp: $mcp, parallel: $parallel, autoCommit: $autoCommit, agents: $agents}')" \
     "$([[ "$ok" == true ]] && echo "✅ preflight 통과" || { echo "⛔ preflight 실패"; printf '   - %s\n' "${PREFLIGHT_PROBLEMS[@]}"; })
 $([[ ${#PREFLIGHT_NOTES[@]} -gt 0 ]] && printf 'ℹ️ %s\n' "${PREFLIGHT_NOTES[@]}")
 $(mcp_status_text "$mcp_json")"

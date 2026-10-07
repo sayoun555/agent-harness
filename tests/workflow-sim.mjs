@@ -68,7 +68,7 @@ function makeProject() {
 
 // ── 가짜 agent(): 시나리오 ─────────────────────────────────────────
 function makeFakeAgent(project) {
-  const calls = { implement: {}, review: {}, reviewPrompts: [], implementPrompts: {} }
+  const calls = { implement: {}, review: {}, reviewPrompts: [], implementPrompts: {}, agentTypes: { runner: new Set(), implement: new Set(), review: new Set() } }
   const bump = (kind, id) => (calls[kind][id] = (calls[kind][id] || 0) + 1)
 
   const implement = {
@@ -86,6 +86,7 @@ function makeFakeAgent(project) {
   async function fakeAgent(prompt, opts = {}) {
     const props = Object.keys((opts.schema && opts.schema.properties) || {})
     if (props.includes('exitCode')) {                       // 결정론 노드: 명령 실제 실행
+      if (!prompt.includes('feature preflight')) calls.agentTypes.runner.add(opts.agentType)
       const command = prompt.trim().split('\n').pop().replace(/^\.harness\/bin\/harness/, `bash ${HARNESS}`)
       const r = sh(project, command)
       return { exitCode: r.status, stdout: r.stdout }
@@ -93,6 +94,7 @@ function makeFakeAgent(project) {
     const id = featureIdOf(prompt)
     if (props.includes('filesChanged')) {                   // 구현 노드
       calls.implementPrompts[id] = followBootstrap(project, prompt)
+      calls.agentTypes.implement.add(opts.agentType)
       bump('implement', id)
       if (questions[id]) return { needsDecision: true, question: questions[id], summary: '', filesChanged: [] }
       implement[id](calls.implement[id])
@@ -100,6 +102,7 @@ function makeFakeAgent(project) {
     }
     if (props.includes('checks')) {                         // 검증 노드: 대조표
       calls.reviewPrompts.push(prompt)
+      calls.agentTypes.review.add(opts.agentType)
       const n = bump('review', id)
       const approved = review[id] ? review[id](n) : true
       const reviewText = followBootstrap(project, prompt)
@@ -174,6 +177,13 @@ try {
     assert.match(p, /Playwright MCP 로 화면을 확인한다\. 먼저 npm run dev/)
   }
   assert.deepEqual(result.mcpSuggestions, [])
+
+  // 플러그인이 이 프로젝트에서 켜져 있으면 하네스 전용 에이전트를 쓴다.
+  // 검증자는 MCP 로 화면을 봐야 해서(위 지시) MCP 도구가 있는 기본 에이전트로 띄운다.
+  const types = fakeAgent.calls.agentTypes
+  assert.deepEqual([...types.runner], ['agent-harness:harness-runner'])
+  assert.deepEqual([...types.implement], ['agent-harness:harness-implementer'])
+  assert.deepEqual([...types.review], [undefined])
 
   console.log('✓ feature-loop 그래프 시뮬레이션 통과')
   console.log('  ' + nodes.join('\n  '))

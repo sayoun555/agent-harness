@@ -82,6 +82,14 @@ pending ─verify─▶ verified ─review --approve─▶ reviewed ─record─
 나중에 그 파일 내용이 다르면 "검증 후 변경됨" 이다. 루프 사전 점검과 `feature audit` 가 그 기능을 pending 으로 되돌려 다시 게이트·검증을 거치게 한다. 편집 직후 훅은 이미 통과한 기능의 파일이라고 알려 준다(막지 않는다).
 다른 기능이 같은 파일을 고쳐 검증을 통과하면 그 변경은 검증된 것이다. 그래서 기록할 때 앞서 통과한 기능들의 같은 파일 해시도 새 내용으로 맞춘다. 정당한 후속 변경으로 앞 기능이 다시 열리지 않는다.
 
+## 소유권과 단계별 변경 해시
+
+범위(claim)가 없는 기능은 작업 트리 전체를 자기 변경으로 본다. 그래서 같은 트리에 변경이 남아 있을 수 있는 다른 기능이 있으면 verify · review · record · approve 가 멈춘다(`require_sole_owner`, `lib/record.sh`).
+그런 기능은 verified · reviewed, 또는 pending 이면서 이 트리에서 구현을 시작한 기능이다. 구현 시작은 `prompt implement` 가 원장 `implementedUnder.mode` 에 남긴다. isolated(워크트리)는 제외하고, 보관되면 지운다.
+이게 없으면 한 기능의 위험 판정·보관이 남의 변경까지 담아 트리에서 치우고, 다음 기능은 빈 트리로 통과한다.
+
+게이트가 본 변경 = 검토한 변경 = 기록할 변경이어야 한다. verify 통과 때 `verifiedChange`, 검토 승인 때 `reviewedChange` 에 범위 안 diff 의 해시를 남긴다. review 와 record 가 다시 재서 다르면 pending 으로 되돌린다. 기록할 변경이 비어 있어도 되돌린다.
+
 ## 보관
 
 blocked · awaiting-approval · needs-decision 으로 떠나는 기능의 변경은 치워서 보관하고, 작업 트리를 기준 트리로 되돌린다. 기능 원장의 변경은 보관하지 않고 유지한다.

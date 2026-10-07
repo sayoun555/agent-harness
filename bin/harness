@@ -13,7 +13,7 @@ usage() {
 사용: harness <명령> [인자...]
 
   init [--preset 이름]       이 프로젝트에 하네스를 끼운다 (.harness/ 생성)
-  check [--all | 파일...]     결정론 게이트: stub·시크릿(차단), 파일 크기(경고)
+  check [--staged | --all | 파일...]  결정론 게이트 (인자 없으면 기준 대비 바뀐 파일): stub·시크릿(차단), 크기(경고)
   test-guard [기준-ref]       테스트 약화 감시 (기본 기준: HEAD)
   feature <하위명령>          기능 원장: list·next·add·verify·reject·commit·approve·reset·status·audit
   risk [--json]               승인이 필요한 위험 파일 변경 목록

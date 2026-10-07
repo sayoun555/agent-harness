@@ -102,6 +102,10 @@ test -f .harness/project.json && test -x .harness/bin/harness && echo plugged ||
 
 서브에이전트는 **한 번 쓰고 버린다.** 시도마다 새 구현 서브에이전트, 검증마다 새 검증 서브에이전트를 띄운다. 끝난 서브에이전트에 후속 지시를 이어 붙이지 않는다(SendMessage 로 이어 가지 않는다). 새로 할 일이 생기면 `feature add` 로 원장에 넣고 새 서브에이전트에게 맡긴다.
 
+서브에이전트 종류(subagent_type)는 목록에 하네스 전용 정의가 있으면 그것을 쓴다. 도구를 필요한 것만 가져서 시작 비용이 기본 에이전트의 약 1/5이다.
+구현은 `agent-harness:harness-implementer`, 검증은 `agent-harness:harness-reviewer`. 목록에 없으면 기본 에이전트를 쓴다.
+검증자가 MCP 로 실제 화면을 확인해야 하면(검증 프롬프트에 MCP 지시가 있으면) 검증만 기본 에이전트로 띄운다. 전용 검증자에게는 MCP 도구가 없다.
+
 1. **구현 서브에이전트**(Agent 도구)를 띄운다. 프롬프트는 이 한 줄이다.
    > 먼저 `.harness/bin/harness prompt implement ID` 를 실행하고, 출력된 지시를 그대로 따른다.
 
@@ -113,7 +117,7 @@ test -f .harness/project.json && test -x .harness/bin/harness && echo plugged ||
 3. **검증 서브에이전트**를 구현자와 다른 Agent 호출로 띄운다. 프롬프트는 이 한 줄이다.
    > 먼저 `.harness/bin/harness prompt review ID` 를 실행하고, 출력된 프로토콜대로 대조표를 만들어 제출한다.
 
-   검증자가 대조표를 `feature review ID --verdict-file` 로 제출한다. 승인·반려는 하네스가 대조표로 정한다. 반려면 1로 돌아간다.
+   검증자가 대조표를 `.harness/verdicts/ID.json` 에 저장해 `feature review ID --verdict-file` 로 제출한다. 승인·반려는 하네스가 대조표로 정한다. 반려면 1로 돌아간다.
 4. 기록한다. 커밋할지는 설정(`loop.autoCommit`)이 정한다.
    ```bash
    .harness/bin/harness feature record ID

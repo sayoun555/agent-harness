@@ -31,9 +31,11 @@ with_temp_index() {  # with_temp_index <명령...> — GIT_INDEX_FILE 을 임시
   return "$code"
 }
 
+# 전체를 담은 뒤 .harness/ 를 뺀다. pathspec 으로 빼면 .harness 가 gitignore 대상인 저장소에서
+# git 이 "ignored 경로" 경고를 매번 낸다.
 snapshot_worktree() {
+  git add -A
   git rm -r -q --cached --ignore-unmatch -- .harness >/dev/null
-  git add -A -- . "$HARNESS_PATHSPEC"
   git write-tree
 }
 
