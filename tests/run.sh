@@ -808,7 +808,7 @@ test_loop_run_invokes_headless_claude_with_workflow() {
   bin="$(fake_loop_claude '{"stopReason":"all-done"}')"
   assert_exit 0 env PATH="$bin:$PATH" bash "$HARNESS" loop run --max 5 --parallel 2 --plugin-dir /opt/harness
   assert_contains "$(cat "$bin/prompt")" '"scriptPath": "'"$(pwd -P)"'/.harness/bin/feature-loop.js"'
-  assert_contains "$(cat "$bin/prompt")" '{"maxIterations":5,"parallel":2}'
+  assert_contains "$(cat "$bin/prompt")" '{"maxIterations":5,"parallel":2,"agents":{"runner":"agent-harness:harness-runner"'
   assert_contains "$(paste -sd ' ' "$bin/args")" "-p --output-format text --permission-mode acceptEdits"
   assert_contains "$(paste -sd ' ' "$bin/args")" "--plugin-dir /opt/harness"
   assert_eq "$(ls .harness/runs/*.log | wc -l | tr -d ' ')" "1"
@@ -1214,6 +1214,17 @@ test_claimed_features_record_in_the_same_tree() {
   assert_exit 0 h feature record a
   assert_exit 0 h feature record b
   assert_eq "$(status_of b)" "passing"
+}
+
+test_claim_refuses_file_in_another_scope() {
+  use_ledger_mode
+  add_feature a "에이" 'true'
+  add_feature b "비" 'true'
+  h feature claim a --files src/shared.js,src/a.js >/dev/null
+  assert_exit 1 h feature claim b --files src/b.js,src/shared.js
+  assert_eq "$(h feature claim b --files src/shared.js --json | jq -r .result)" "overlap"
+  assert_eq "$(jq -c '.features[1].scope' .harness/features.json)" "null" "(겹치면 범위를 적지 않는다)"
+  assert_exit 0 h feature claim b --files src/b.js
 }
 
 test_record_refuses_when_reviewed_change_is_gone() {

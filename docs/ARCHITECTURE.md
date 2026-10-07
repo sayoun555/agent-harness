@@ -88,6 +88,8 @@ pending ─verify─▶ verified ─review --approve─▶ reviewed ─record─
 그런 기능은 verified · reviewed, 또는 pending 이면서 이 트리에서 구현을 시작한 기능이다. 구현 시작은 `prompt implement` 가 원장 `implementedUnder.mode` 에 남긴다. isolated(워크트리)는 제외하고, 보관되면 지운다.
 이게 없으면 한 기능의 위험 판정·보관이 남의 변경까지 담아 트리에서 치우고, 다음 기능은 빈 트리로 통과한다.
 
+한 파일은 한 기능의 범위에만 있다. 이미 다른 기능의 범위인 파일은 claim 이 거부한다. 같은 트리 병렬 루프는 게이트 전에 바퀴 안의 모든 기능의 범위를 먼저 적는다. 하나씩 적으면 앞 기능이 기록되며 범위가 풀려, 겹친 파일을 놓친다.
+
 게이트가 본 변경 = 검토한 변경 = 기록할 변경이어야 한다. verify 통과 때 `verifiedChange`, 검토 승인 때 `reviewedChange` 에 범위 안 diff 의 해시를 남긴다. review 와 record 가 다시 재서 다르면 pending 으로 되돌린다. 기록할 변경이 비어 있어도 되돌린다.
 
 ## 보관

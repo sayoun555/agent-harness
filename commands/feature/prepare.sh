@@ -26,15 +26,32 @@ cmd_add() {
 
 # 같은 작업 트리에서 여러 기능을 동시에 구현할 때, 기능이 맡은 파일을 적는다.
 # 게이트·검증·기록·보관이 이 범위만 본다.
+# 한 파일은 한 기능의 범위에만 있다. 이미 다른 기능의 범위인 파일이면 맡지 않는다 —
+# 같은 파일에 섞인 두 기능의 변경은 가를 수 없다. 그 기능은 앞 기능이 기록된 뒤 다시 구현한다.
+claimed_by_others() {  # claimed_by_others <id> <파일 JSON 배열> → "경로(기능)" 쉼표로
+  jq -r --arg id "$1" --argjson files "$2" '
+    [.features[] | select(.id != $id and .scope != null) as $f
+     | $f.scope[] | select(. as $p | $files | index($p)) | "\(.)(\($f.id))"] | join(", ")' "$(features_file)"
+}
+
 cmd_claim() {
   local id="${1:-}"; shift || true
-  local files
+  local files files_json taken json_mode
   files="$(flag_value --files "$@")"
   [[ -n "$id" && -n "$files" ]] || die "$EXIT_USAGE" "사용: feature claim ID --files 경로,경로"
   require_features_file; require_feature "$id"
   require_status "$id" "$STATUS_PENDING"
-  set_feature_fields "$id" "$(split_commas "$files" | lines_to_json | jq -c '{scope: .}')"
-  emit "$(json_mode_of "$@")" "$(result_json "$id" claimed "범위 $(split_commas "$files" | wc -l | tr -d ' ')개 파일")" "📌 claim $id: $files"
+  json_mode="$(json_mode_of "$@")"
+  files_json="$(split_commas "$files" | lines_to_json)"
+  taken="$(claimed_by_others "$id" "$files_json")"
+  if [[ -n "$taken" ]]; then
+    trace_add claim "$(jq -cn --arg id "$id" --arg t "$taken" '{feature: $id, result: "overlap", files: $t}')"
+    emit "$json_mode" "$(result_json "$id" overlap "다른 기능의 범위와 겹친다: $taken" "앞 기능이 기록된 뒤 다시 구현한다")" \
+      "⛔ claim $id: 다른 기능의 범위와 겹친다 — $taken (같은 파일을 고치는 기능은 순차로)"
+    return "$EXIT_GATE_FAILED"
+  fi
+  set_feature_fields "$id" "$(jq -c '{scope: .}' <<<"$files_json")"
+  emit "$json_mode" "$(result_json "$id" claimed "범위 $(jq length <<<"$files_json")개 파일")" "📌 claim $id: $files"
 }
 
 # ── 루프 사전 점검 ───────────────────────────────────────────────────

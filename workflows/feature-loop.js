@@ -1,7 +1,7 @@
 export const meta = {
   name: 'feature-loop',
   description: '기능 원장의 pending 기능을 하나씩 구현 → 결정론 게이트 → 독립 검증 → 기록하는 제한 루프. 막히거나 위험하면 사람에게 넘긴다.',
-  whenToUse: '.harness/features.json 에 acceptance 가 있는 pending 기능이 있을 때. args: { maxIterations, parallel }',
+  whenToUse: '.harness/features.json 에 acceptance 가 있는 pending 기능이 있을 때. args: { maxIterations, parallel, agents }',
   phases: [
     { title: 'Preflight', detail: '원장 · acceptance · 작업 트리(또는 기준선) 점검' },
     { title: 'Loop', detail: '선택 → 구현 → 게이트 → 검증 → 기록, 기능마다 반복' },
@@ -99,8 +99,9 @@ function lastJsonLine(stdout) {
 let currentPhase = 'Preflight'
 
 // 플러그인이 켜져 있으면 preflight 가 하네스 전용 에이전트 이름을 준다 (도구를 필요한 것만 가진 정의).
+// 호출하는 쪽(loop run · 스킬)이 이미 preflight 를 돌렸으면 args.agents 로 받아 preflight 부터 쓴다.
 // 없으면 기본 에이전트를 쓴다.
-let AGENTS = {}
+let AGENTS = (args && args.agents) || {}
 function agentTypeOf(role) { return AGENTS[role] ? { agentType: AGENTS[role] } : {} }
 
 async function runHarness(command, label) {
@@ -196,10 +197,13 @@ async function bringInFromWorktree(feature, work, iteration) {
 }
 
 // 커밋 없음: 같은 트리에서 구현했으니, 바꾼 파일을 그 기능의 범위로 적는다.
-async function claimInSharedTree(feature, work) {
+// 다른 기능의 범위와 겹치면 이번 바퀴에는 게이트로 가지 않는다 (앞 기능이 기록된 뒤 다시 구현).
+async function claimInSharedTree(feature, work, iteration) {
   const files = (work && work.filesChanged) || []
-  if (files.length) await runHarness(`feature claim ${feature.id} --files ${shellQuote(files.join(','))} --json`, `범위:${tagOf(feature)}`)
-  return null
+  if (!files.length) return null
+  const claimed = await runHarness(`feature claim ${feature.id} --files ${shellQuote(files.join(','))} --json`, `범위:${tagOf(feature)}`)
+  if (claimed && claimed.result === 'claimed') return null
+  return { ...stepOf(feature, iteration), node: 'claim', result: claimed ? claimed.result : 'no-response', reason: claimed ? claimed.reason : '' }
 }
 
 async function runParallel(batch, iteration, autoCommit) {
@@ -208,13 +212,20 @@ async function runParallel(batch, iteration, autoCommit) {
   const extra = autoCommit ? { isolation: 'worktree' } : {}
   const works = await parallel(batch.map((feature) => () => implement(feature, mode, schema, extra)))
 
+  // 같은 트리면 게이트 전에 모두의 범위를 먼저 적는다. 앞 기능이 기록되면 범위가 풀려서,
+  // 하나씩 적으면 겹친 파일이 앞 기능의 변경으로 기록된다.
   const outcomes = []
+  const ready = []
   for (let i = 0; i < batch.length; i++) {
     const feature = batch[i]
-    const work = works[i]
-    const asked = await askIfNeeded(feature, work, iteration)
+    const asked = await askIfNeeded(feature, works[i], iteration)
     if (asked) { outcomes.push(asked); continue }
-    const failed = autoCommit ? await bringInFromWorktree(feature, work, iteration) : await claimInSharedTree(feature, work)
+    const overlapped = autoCommit ? null : await claimInSharedTree(feature, works[i], iteration)
+    if (overlapped) { outcomes.push(overlapped); continue }
+    ready.push({ feature, work: works[i] })
+  }
+  for (const { feature, work } of ready) {
+    const failed = autoCommit ? await bringInFromWorktree(feature, work, iteration) : null
     outcomes.push(failed || await gateReviewRecord(feature, iteration))
   }
   return outcomes

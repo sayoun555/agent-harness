@@ -4,10 +4,13 @@
 //
 // 커밋이 하나도 없는 저장소에서, 같은 작업 트리 병렬(parallel = 2)로 돈다.
 //
-//   1바퀴 [a, b]     같은 트리에서 동시에 구현 → 각자 범위(claim)로 검증·기록 → passing
-//   2바퀴 [pay, bad] pay 는 위험 파일 → 승인 대기 (패치로 보관, 트리에서 치움)
-//                    bad 는 acceptance 실패 → pending
-//   3바퀴 [bad]      같은 실패 2회 → blocked (패치로 보관)
+//   1바퀴 [a, b]     같은 트리에서 동시에 구현 → 게이트 전에 모두 범위(claim)를 적는다
+//                    b 는 a 의 파일도 고쳤다고 보고 → 범위가 겹쳐 이번 바퀴는 게이트로 가지 않는다
+//                    a 는 자기 범위로 검증·기록 → passing
+//   2바퀴 [b, pay]   b 는 다시 구현해 자기 파일만 → passing
+//                    pay 는 위험 파일 → 승인 대기 (패치로 보관, 트리에서 치움)
+//   3바퀴 [bad]      acceptance 실패 → pending
+//   4바퀴 [bad]      같은 실패 2회 → blocked (패치로 보관)
 //   끝까지 커밋·브랜치·ref 를 하나도 만들지 않는다.
 
 import { execFileSync } from 'node:child_process'
@@ -31,6 +34,7 @@ mustRun(project, 'git add -A')   // 스테이징만 하고 커밋은 하지 않�
 
 const files = { a: 'src/a.js', b: 'src/b.js', pay: 'src/payment.js', bad: 'src/bad.js' }
 const sharedPrompts = []
+const implementCount = {}
 
 async function agent(prompt, opts = {}) {
   const keys = schemaKeys(opts)
@@ -41,7 +45,10 @@ async function agent(prompt, opts = {}) {
     assert.equal(opts.isolation, undefined, '커밋 없는 병렬은 워크트리를 쓰지 않는다')
     sharedPrompts.push(followBootstrap(project, prompt))
     writeFileSync(join(project, files[id]), `export const ${id} = 1;\n`)
-    return { needsDecision: false, question: '', summary: id, filesChanged: [files[id]] }
+    implementCount[id] = (implementCount[id] || 0) + 1
+    // b 는 첫 시도에서 a 의 파일도 고쳤다고 보고한다 → 범위가 겹쳐 이번 바퀴는 게이트로 가지 않는다
+    const changed = id === 'b' && implementCount[id] === 1 ? [files[id], files.a] : [files[id]]
+    return { needsDecision: false, question: '', summary: id, filesChanged: changed }
   }
   if (keys.includes('checks')) {
     const context = followBootstrap(project, prompt)
@@ -63,11 +70,12 @@ try {
   assert.equal(result.autoCommit, false)
   const nodes = result.steps.map((s) => `${s.iteration}:${s.feature}:${s.node}:${s.result}`)
   assert.deepEqual(nodes, [
+    '1:b:claim:overlap',
     '1:a:record:passing',
-    '1:b:record:passing',
+    '2:b:record:passing',
     '2:pay:record:awaiting-approval',
-    '2:bad:gate:pending',
-    '3:bad:gate:blocked',
+    '3:bad:gate:pending',
+    '4:bad:gate:blocked',
   ])
   assert.deepEqual(result.passing.sort(), ['a', 'b'])
 

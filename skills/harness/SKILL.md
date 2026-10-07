@@ -86,8 +86,10 @@ test -f .harness/project.json && test -x .harness/bin/harness && echo plugged ||
 2. 워크플로우 경로를 얻어 Workflow 도구로 실행한다.
    ```bash
    .harness/bin/harness path workflow
+   .harness/bin/harness feature preflight --json | jq -c .agents
    ```
-   `Workflow({ scriptPath: "<위 출력>", args: { maxIterations: 20 } })`
+   `Workflow({ scriptPath: "<첫 줄 출력>", args: { maxIterations: 20, agents: <둘째 줄 출력> } })`
+   agents 를 넘기면 루프의 첫 명령부터 하네스 전용 에이전트를 쓴다(비어 있으면 기본 에이전트).
    경로는 프로젝트 안의 사본이다. 원본 경로로 바꾸지 않는다(작업 디렉터리 밖이라 거부된다).
    사용자가 "병렬로" 라고 하면 `args.parallel` 에 동시 구현 수(2~4)를 넣는다.
 3. 끝나면 결과를 요약한다: 통과, 판단 필요(질문 그대로), 승인 대기, 막힘(이유 포함), 남은 기능, MCP 제안.
