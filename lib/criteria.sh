@@ -64,3 +64,9 @@ criterion_index() {  # criterion_index < 파일 목록
 }
 
 review_criterion_index() { review_criteria_files | criterion_index; }
+
+# ── 기준 버전 ───────────────────────────────────────────────────────
+# 검증 기준 파일들의 내용 해시. 구현 시점과 검증 시점의 기준이 같은지 비교한다.
+criteria_version() { review_criteria_files | while IFS= read -r f; do cat "$f"; done | shasum | cut -c1-12; }
+
+criteria_ids_json() { review_criterion_index | cut -f1 | lines_to_json; }

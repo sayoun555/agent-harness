@@ -37,6 +37,9 @@ run_gates() {  # run_gates <id> → 0 이면 모두 통과
   if [[ -n "$compile" ]] && ! run_locked_step "$compile"; then fail_gate "컴파일"; return; fi
   run_step "$guard" || { fail_gate "테스트 약화"; return; }
   run_locked_step "$acceptance" || { fail_gate "acceptance"; return; }
+  if runtime_enabled; then
+    run_locked_step "bash \"$HARNESS_HOME/commands/run.sh\" $(printf '%q' "$id")" || { fail_gate "실행 확인"; return; }
+  fi
   return 0
 }
 
@@ -52,6 +55,7 @@ cmd_verify() {
     set_feature_fields "$id" '{"status":"verified","repeats":0,"lastFailure":"","lastFailureDetail":"","lastFailureFingerprint":""}'
     trace_add verify "$(jq -cn --arg id "$id" '{feature: $id, result: "pass"}')"
     emit "$json_mode" "$(result_json "$id" pass "모든 게이트 통과")" "✅ verify $id: 통과 → verified (다음: 독립 검증)"
+    [[ "$json_mode" -eq 0 ]] && criteria_change_notice "$id" >&2
     return 0
   fi
 
@@ -118,10 +122,25 @@ cmd_review() {
 
 cmd_reject() { local id="${1:-}"; shift || true; cmd_review "$id" --reject "$@"; }
 
+# ── 검증 후 변경 ────────────────────────────────────────────────────
+cmd_drift() {
+  require_features_file
+  local found json
+  if has_flag --reopen "$@"; then found="$(reopen_drifted_features)"; else found="$(drifted_features)"; fi
+  json="$(jq -Rsc 'split("\n") | map(select(length > 0) | split("\t") | {id: .[0], files: (.[1] | split(","))})' <<<"$found")"
+  emit "$(json_mode_of "$@")" "$json" \
+    "$([[ -z "$found" ]] && echo "✅ drift: 검증 후 바뀐 기능 없음" \
+       || { echo "⚠️ drift: 검증을 통과한 뒤 바뀐 기능 (어떤 검증도 거치지 않은 변경)"; awk -F'\t' '{ printf "   - %s: %s\n", $1, $2 }' <<<"$found"; })"
+}
+
 # ── 감사: passing 이 여전히 참인가 ────────────────────────────────────
 cmd_audit() {
   require_features_file
-  local id regressed=()
+  # 검증 뒤에 바뀐 기능은 acceptance 를 돌리기 전에 다시 연다 — 통과해도 검증을 거치지 않은 변경이다
+  local id files regressed=() drifted=()
+  while IFS=$'\t' read -r id files; do
+    [[ -n "$id" ]] && drifted+=("$id")
+  done < <(reopen_drifted_features)
   while IFS= read -r id; do
     [[ -z "$id" ]] && continue
     run_locked_step "$(feature_field "$id" acceptance)" && continue
@@ -130,9 +149,11 @@ cmd_audit() {
     regressed+=("$id")
   done < <(jq -r '.features[] | select(.status == "passing") | .id' "$(features_file)")
 
-  local regressed_json='[]'
-  [[ ${#regressed[@]} -gt 0 ]] && regressed_json="$(printf '%s\n' "${regressed[@]}" | lines_to_json)"
-  emit "$(json_mode_of "$@")" "$(jq -cn --argjson r "$regressed_json" '{regressed: $r}')" \
-    "$([[ ${#regressed[@]} -eq 0 ]] && echo "✅ audit: 회귀 없음" || echo "⛔ audit: 회귀 → pending 으로 되돌림: ${regressed[*]}")"
-  [[ ${#regressed[@]} -eq 0 ]]
+  local regressed_json='[]' drifted_json='[]' text=()
+  [[ ${#regressed[@]} -gt 0 ]] && { regressed_json="$(printf '%s\n' "${regressed[@]}" | lines_to_json)"; text+=("⛔ audit: 회귀 → pending 으로 되돌림: ${regressed[*]}"); }
+  [[ ${#drifted[@]} -gt 0 ]] && { drifted_json="$(printf '%s\n' "${drifted[@]}" | lines_to_json)"; text+=("⛔ audit: 검증 후 변경 → pending 으로 되돌림: ${drifted[*]}"); }
+  [[ ${#text[@]} -eq 0 ]] && text=("✅ audit: 회귀 없음")
+  emit "$(json_mode_of "$@")" "$(jq -cn --argjson r "$regressed_json" --argjson d "$drifted_json" '{regressed: $r, drifted: $d}')" \
+    "$(printf '%s\n' "${text[@]}")"
+  [[ ${#regressed[@]} -eq 0 && ${#drifted[@]} -eq 0 ]]
 }

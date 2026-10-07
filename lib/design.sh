@@ -7,9 +7,9 @@
 #
 
 readonly DESIGN_TEMPLATE="$HARNESS_HOME/design/templates/design.md"
-readonly REQUIRED_SECTIONS="요구 원천|완성 정의|범위 밖|현재 상태|설계 결정|구성 요소|검증 계획|기능 분해|요구 추적"
+readonly REQUIRED_SECTIONS="요구 원천|완성 정의|UX·레퍼런스|범위 밖|현재 상태|설계 결정|구성 요소|검증 계획|기능 분해|요구 추적"
 readonly OUT_OF_SCOPE="범위 밖"
-readonly TEXT_SECTIONS="완성 정의|범위 밖|현재 상태"
+readonly TEXT_SECTIONS="완성 정의|UX·레퍼런스|범위 밖|현재 상태"
 readonly DECISION_PENDING="사람 결정 필요"
 
 # ── 기준 ── lib/criteria.sh 에 있다 (design_criteria_files · print_design_criteria)

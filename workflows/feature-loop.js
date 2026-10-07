@@ -73,7 +73,7 @@ const VERDICT = {
           id: { type: 'string', description: '항목 ID (REQ · REG · Q1 · K6 · A2 · P3 …)' },
           result: { type: 'string', enum: ['kept', 'violated', 'na'] },
           where: { type: 'string', description: 'violated 면 파일:줄. 아니면 빈 문자열' },
-          note: { type: 'string', description: 'kept 는 근거, violated 는 무엇·고칠 방법, na 는 왜 해당 없는지' },
+          note: { type: 'string', description: 'kept 는 근거, violated 는 무엇·고칠 방법(구조로 — 특정 상태만 막는 분기 금지), na 는 왜 해당 없는지' },
         },
         required: ['id', 'result', 'where', 'note'],
       },

@@ -547,6 +547,10 @@ write_design() {
 
 사용자가 두 수의 차와 곱을 얻는다. 데이터는 입력값뿐이다.
 
+## UX·레퍼런스
+
+없음 (화면이 없다)
+
 ## 범위 밖
 
 나눗셈.
@@ -601,6 +605,7 @@ test_design_new_creates_doc_that_fails_until_filled() {
   assert_contains "$(head -1 "$doc")" "# 설계: calc"
   assert_exit 1 h design check "$doc"
   assert_contains "$(h design check "$doc")" "절이 비어 있다: ## 완성 정의"
+  assert_contains "$(h design check "$doc")" "절이 비어 있다: ## UX·레퍼런스"
   assert_exit 2 h design new calc
 }
 
@@ -1100,6 +1105,120 @@ test_prompt_review_is_self_contained() {
   assert_contains "$out" "+export const sub"
 }
 
+# ── 검증 후 변경 (drift) ────────────────────────────────────────────
+pass_feature() {  # pass_feature <id> — 게이트·검증·기록까지
+  verify_and_review "$1"
+  h feature record "$1" >/dev/null 2>&1
+}
+
+test_drift_catches_edit_after_verification() {
+  use_ledger_mode
+  add_feature sub "빼기" 'grep -q "const sub" src/math.js'
+  h feature preflight >/dev/null 2>&1
+  echo 'export const sub = (a, b) => a - b;' >> src/math.js
+  pass_feature sub
+  assert_eq "$(jq -r '.features[0].verifiedFiles | keys | join(",")' .harness/features.json)" "src/math.js"
+  assert_contains "$(h feature drift)" "검증 후 바뀐 기능 없음"
+  echo '// 상태바 손질' >> src/math.js
+  assert_contains "$(h feature drift)" "- sub: src/math.js"
+  h feature preflight >/dev/null 2>&1
+  assert_eq "$(status_of sub)" "pending" "(다음 루프가 다시 검증하도록 대기열로)"
+  assert_eq "$(field_of sub lastFailure)" "검증 후 변경됨: src/math.js"
+}
+
+test_drift_ignores_changes_verified_by_a_later_feature() {
+  use_ledger_mode
+  add_feature sub "빼기" 'grep -q "const sub" src/math.js'
+  add_feature mul "곱하기" 'grep -q "const mul" src/math.js'
+  h feature preflight >/dev/null 2>&1
+  echo 'export const sub = (a, b) => a - b;' >> src/math.js
+  pass_feature sub
+  echo 'export const mul = (a, b) => a * b;' >> src/math.js
+  pass_feature mul
+  assert_contains "$(h feature drift)" "검증 후 바뀐 기능 없음" "(mul 이 같은 파일을 고쳤지만 그 변경은 검증됐다)"
+}
+
+test_drift_reopens_in_commit_mode_audit() {
+  add_feature sub "빼기" 'grep -q "const sub" src/math.js'
+  echo 'export const sub = (a, b) => a - b;' >> src/math.js
+  pass_feature sub
+  assert_eq "$(git status --porcelain)" "" "(통과 표시와 검증 해시가 커밋에 같이 담긴다)"
+  echo '// 손질' >> src/math.js
+  assert_exit 1 h feature audit   # acceptance 는 통과해도 검증 후 변경이면 실패
+  assert_eq "$(status_of sub)" "pending"
+  assert_eq "$(field_of sub lastFailure)" "검증 후 변경됨: src/math.js"
+}
+
+test_hook_warns_when_editing_verified_file() {
+  use_ledger_mode
+  add_feature sub "빼기" 'grep -q "const sub" src/math.js'
+  h feature preflight >/dev/null 2>&1
+  echo 'export const sub = (a, b) => a - b;' >> src/math.js
+  pass_feature sub
+  echo '// 손질' >> src/math.js
+  local out
+  out="$(hook_input "$PWD/src/math.js" | CLAUDE_PROJECT_DIR="$PWD" h hook post-edit)"
+  assert_contains "$(jq -r .hookSpecificOutput.additionalContext <<<"$out")" "이미 검증을 통과한 기능(sub)의 파일이다"
+}
+
+# ── 실행 렌즈 ───────────────────────────────────────────────────────
+# 가짜 명령으로 실행 렌즈를 켠다. setup_cmd 가 실패하면 그 단계에서 멈춘다.
+enable_runtime() {
+  local setup_cmd="${1:-echo 설치됨}"
+  jq --arg setup "$setup_cmd" '.runtime = {enabled: true, appId: "com.example.app",
+      setup: [{name: "설치", command: $setup}, {name: "실행", command: "echo {appId} 실행 >> {dir}/launched"}],
+      screens: [{name: "첫 화면", command: "printf PNG > {out}"}, {name: "설정", command: "printf PNG > {out}"}],
+      log: "echo W/App: 경고 하나",
+      teardown: [{name: "종료", command: "echo 종료"}]}' .harness/project.json > p && mv p .harness/project.json
+}
+
+test_runtime_lens_runs_as_last_gate_and_feeds_review() {
+  enable_runtime
+  add_feature a "에이" 'true'
+  assert_exit 0 h feature verify a
+  local dir
+  dir="$(jq -r '.features[0].lastRun.dir' .harness/features.json)"
+  assert_eq "$(ls "$dir"/*.png | wc -l | tr -d ' ')" "2"
+  assert_contains "$(cat "$dir/launched")" "com.example.app 실행" "({appId}·{dir} 치환)"
+  local out
+  out="$(h review --context a)"
+  assert_contains "$out" "## 실행 확인"
+  assert_contains "$out" "스크린샷: $dir/01-첫_화면.png"
+  assert_contains "$out" "W/App: 경고 하나"
+}
+
+test_runtime_lens_failure_fails_gate() {
+  enable_runtime "exit 3"
+  add_feature a "에이" 'true'
+  assert_exit 1 h feature verify a
+  assert_eq "$(field_of a lastFailure)" "실행 확인 실패"
+  assert_eq "$(jq -r '.features[0].lastRun.failedStep' .harness/features.json)" "설치"
+}
+
+test_runtime_lens_is_off_by_default() {
+  add_feature a "에이" 'true'
+  assert_exit 0 h feature verify a
+  assert_eq "$(jq -r '.features[0].lastRun // "없음"' .harness/features.json)" "없음"
+}
+
+# ── 기준 버전 ───────────────────────────────────────────────────────
+test_review_warns_when_criteria_changed_after_implementation() {
+  add_feature sub "빼기" 'true'
+  h prompt implement sub >/dev/null
+  assert_eq "$(jq -r '.features[0].implementedUnder.criteriaIds | length' .harness/features.json)" "7" "(Q1~Q7)"
+  assert_eq "$(h prompt review sub | grep -c '기준이 다르다' || true)" "0" "(기준이 그대로면 알리지 않는다)"
+  h criteria add --title "같은 정보를 두 번 담지 않는다" --rule "한 값은 한 필드에만" >/dev/null
+  assert_contains "$(h prompt review sub)" "구현 뒤에 추가된 항목: P1"
+}
+
+test_prompt_records_attempt_and_one_shot_rule() {
+  add_feature sub "빼기" 'false'
+  assert_contains "$(h prompt implement sub)" "[기능 sub · 시도 1 · 구현 전용] 이 지시 하나만 처리하고 끝낸다"
+  h feature verify sub >/dev/null 2>&1 || true
+  assert_contains "$(h prompt implement sub)" "시도 2"
+  assert_contains "$(h prompt review sub)" "검증 전용"
+}
+
 # ── 빌드 잠금 ───────────────────────────────────────────────────────
 test_lock_runs_command_and_releases() {
   assert_exit 0 h lock run -- true
@@ -1131,7 +1250,7 @@ test_brief_is_the_single_implementer_prompt() {
   local seq iso shared
   seq="$(h feature brief sub)"
   assert_contains "$seq" "기능 id: sub"
-  assert_contains "$seq" "# 품질 기준 (검증 대조표 항목)"
+  assert_contains "$seq" "# 품질 기준 (검증 대조표 항목 · 기준 버전"
   assert_contains "$seq" "Q1. 정석으로 해결한다"
   assert_contains "$seq" "git commit 하지 않는다"
   iso="$(h feature brief sub --mode isolated --json | jq -r .prompt)"

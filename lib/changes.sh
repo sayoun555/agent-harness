@@ -88,18 +88,21 @@ base_label() {
 }
 
 # ── 비교 ────────────────────────────────────────────────────────────
-# 경로를 주지 않으면 전체. 주면 그 경로만.
-changed_files() {  # changed_files [paths...] → 추가·수정·이름 변경 (삭제 제외)
-  git diff --name-only --diff-filter=ACMR "$(base_tree)" "$(current_tree)" -- "$@"
+# 모든 비교는 이 함수를 거친다. 경로를 주지 않으면 전체, 주면 그 경로만.
+# .harness/ 는 양쪽에서 뺀다 — 커밋 운용에서 HEAD 트리에는 원장이 있지만 현재 트리에는 없어서,
+# 빼지 않으면 원장이 "삭제됨" 으로 나온다.
+diff_trees() {  # diff_trees <base> <current> <git diff 옵션> [paths...]
+  local base="$1" current="$2" options="$3"; shift 3
+  [[ $# -eq 0 ]] && set -- .
+  # shellcheck disable=SC2086  # 옵션은 공백 없는 단어들이다
+  git diff $options "$base" "$current" -- "$@" "$HARNESS_PATHSPEC"
 }
 
-deleted_files() {  # deleted_files [paths...]
-  git diff --name-only --diff-filter=D "$(base_tree)" "$(current_tree)" -- "$@"
-}
+diff_with_base() { local options="$1"; shift; diff_trees "$(base_tree)" "$(current_tree)" "$options" "$@"; }
 
-print_change_diff() {  # print_change_diff [paths...] — 새 파일·삭제·바이너리 포함
-  git diff --no-color "$(base_tree)" "$(current_tree)" -- "$@"
-}
+changed_files() { diff_with_base "--name-only --diff-filter=ACMR" "$@"; }  # 추가·수정·이름 변경 (삭제 제외)
+deleted_files() { diff_with_base "--name-only --diff-filter=D" "$@"; }
+print_change_diff() { diff_with_base "--no-color" "$@"; }                    # 새 파일·삭제·바이너리 포함
 
 base_files() { git ls-tree -r --name-only "$(base_tree)"; }
 
@@ -108,15 +111,13 @@ base_content() {  # base_content <path> → 기준 트리에서의 내용 (없�
 }
 
 # ── 되돌리기 (커밋 없이 운용할 때의 보관) ────────────────────────────
-patch_against_base() {  # patch_against_base [paths...] → git apply 로 되살릴 수 있는 패치
-  git diff --binary "$(base_tree)" "$(current_tree)" -- "$@"
-}
+patch_against_base() { diff_with_base "--binary" "$@"; }  # git apply 로 되살릴 수 있는 패치
 
 restore_from_base() {  # restore_from_base [paths...] — 범위 안의 작업 트리를 기준 트리로 되돌린다
   local base current added
   base="$(base_tree)"
   current="$(current_tree)"
-  added="$(git diff --name-only --diff-filter=A "$base" "$current" -- "$@")"
+  added="$(diff_trees "$base" "$current" "--name-only --diff-filter=A" "$@")"
   with_temp_index checkout_tree_paths "$base" "$current" "$@"
   [[ -n "$added" ]] && while IFS= read -r path; do rm -f -- "$path"; done <<<"$added"
   return 0
@@ -124,7 +125,7 @@ restore_from_base() {  # restore_from_base [paths...] — 범위 안의 작업 �
 
 checkout_tree_paths() {  # checkout_tree_paths <base> <current> [paths...] — 수정·삭제된 파일을 기준 내용으로
   local base="$1" current="$2" paths; shift 2
-  paths="$(git diff --name-only --diff-filter=MDT "$base" "$current" -- "$@")"
+  paths="$(diff_trees "$base" "$current" "--name-only --diff-filter=MDT" "$@")"
   [[ -z "$paths" ]] && return 0
   git read-tree "$base"
   while IFS= read -r path; do git checkout-index -f -- "$path"; done <<<"$paths"

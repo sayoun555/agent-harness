@@ -22,10 +22,13 @@ design check 를 통과하지 못한 설계는 원장에 들어가지 않는다.
 | 노드 | 누가 | 명령 |
 |---|---|---|
 | 선택 | 결정론 | `feature next --json` |
-| 구현 | LLM (매 바퀴 새 컨텍스트) | 에이전트가 `prompt implement ID` 를 직접 실행해 표준 프롬프트를 받는다 |
-| 게이트 | 결정론 | `feature verify ID` = compile → test-guard → acceptance (빌드는 빌드 잠금 안에서) |
-| 검증 | LLM (구현하지 않은 독립 검증자) | `prompt review ID` 를 받아 대조표를 낸다 → `feature review ID --verdict-json` 으로 하네스가 판정 |
+| 구현 | LLM (시도마다 새 에이전트, 재사용하지 않음) | 에이전트가 `prompt implement ID` 를 직접 실행해 표준 프롬프트를 받는다 |
+| 게이트 | 결정론 | `feature verify ID` = compile → test-guard → acceptance → (켜져 있으면) 실행 렌즈 `run ID`. 빌드는 빌드 잠금 안에서 |
+| 검증 | LLM (구현하지 않은 독립 검증자, 검증마다 새 에이전트) | `prompt review ID` 를 받아 대조표를 낸다 → `feature review ID --verdict-json` 으로 하네스가 판정 |
 | 기록 | 결정론 | `feature record ID` (reviewed 에서만) |
+
+표준 프롬프트 머리에 "기능 · 시도 N · 구현|검증 전용 — 이 지시 하나만 처리하고 끝낸다" 가 찍힌다. Agent 도구의 재사용은 하네스가 막을 수 없어서, 프롬프트와 스킬 규칙으로 막는다.
+구현 프롬프트를 낼 때 기준의 버전(기준 파일 내용 해시)과 항목 ID 를 원장에 남긴다. 검증할 때 지금 기준과 다르면 경고하고, 구현 뒤에 추가된 항목을 알려 준다.
 
 워크플로우(`workflows/feature-loop.js`)는 흐름만 제어한다. 상태 전이는 `lib/features.sh`, 기록 정책은 `lib/record.sh`, 변경 비교는 `lib/changes.sh` 에 있다.
 
@@ -72,6 +75,12 @@ pending ─verify─▶ verified ─review --approve─▶ reviewed ─record─
    └─구현자가 질문─▶ needs-decision ─decide─▶ pending (결정이 다음 구현에 전달됨)
 실패가 maxAttempts 에 닿거나, 같은 실패가 repeatLimit 번 연속이거나, git 훅이 커밋을 막으면 ─▶ blocked ─reset─▶ pending
 ```
+
+## 검증 후 변경 (drift)
+
+기록(record·approve)할 때 그 기능이 바꾼 파일의 내용 해시를 원장 `verifiedFiles` 에 남긴다(`lib/drift.sh`).
+나중에 그 파일 내용이 다르면 "검증 후 변경됨" 이다. 루프 사전 점검과 `feature audit` 가 그 기능을 pending 으로 되돌려 다시 게이트·검증을 거치게 한다. 편집 직후 훅은 이미 통과한 기능의 파일이라고 알려 준다(막지 않는다).
+다른 기능이 같은 파일을 고쳐 검증을 통과하면 그 변경은 검증된 것이다. 그래서 기록할 때 앞서 통과한 기능들의 같은 파일 해시도 새 내용으로 맞춘다. 정당한 후속 변경으로 앞 기능이 다시 열리지 않는다.
 
 ## 보관
 

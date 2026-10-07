@@ -20,6 +20,7 @@ usage() {
   design <하위명령>           설계 단계: criteria·new·check·review-context·features·import
   mcp [--json]                프리셋이 권하는 MCP 연결 상태 (설치하지 않음)
   figma [컴포넌트]            Figma 시각 충실도 렌즈 (UI 전용, UIMatch)
+  run ID                      실행 렌즈: 설치·실행·화면 캡처·로그 (runtime.enabled 면 verify 의 마지막 게이트)
   config [-r] [jq-경로]       병합된 최종 설정
   loop <run|schedule>         사람 없이 루프 실행 (할 일 없으면 토큰 0), cron 줄 출력
   baseline <save|show>        커밋 없이 운용할 때의 비교 기준 (git 트리, 커밋 아님)

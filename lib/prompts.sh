@@ -10,6 +10,9 @@
 # 들어가는 것: 기능 · 설계 문서 · 사람 결정 · 직전 실패 사유 · 품질 기준(공통 + 스택 + 프로젝트) · 규칙.
 # 들어가지 않는 것: 작업 경위, 사람의 발언 인용, 스펙에 이미 있는 내용 (필요하면 읽을 절만 가리킨다).
 #
+# 프롬프트 하나 = 에이전트 하나 = 시도 하나. 같은 에이전트에 후속 지시를 이어 붙이면 컨텍스트가 커지고
+# 앞 지시가 흐려지며, 검증자는 독립성을 잃는다. 그래서 프롬프트 맨 위에 이 원칙과 시도 번호를 찍는다.
+#
 
 readonly IMPLEMENT_MODES="sequential|isolated|shared"
 
@@ -74,14 +77,43 @@ RULES
   esac
 }
 
+attempt_number() { echo $(( $(feature_field "$1" attempts) + 1 )); }
+
+one_shot_notice() {  # one_shot_notice <id> <역할>
+  printf '[기능 %s · 시도 %s · %s 전용] 이 지시 하나만 처리하고 끝낸다. 끝난 뒤 후속 지시를 받지 않는다.\n' \
+    "$1" "$(attempt_number "$1")" "$2"
+  printf '후속 작업(반려 수정·추가 요구·새 작업)은 새 에이전트가 새 프롬프트로 한다. 새 작업은 harness feature add 로 새 기능이 된다.\n\n'
+}
+
 implement_prompt() {  # implement_prompt <id> <mode>
+  one_shot_notice "$1" "구현"
   printf '너는 기능 하나를 구현하는 코더다. 이 저장소의 CLAUDE.md·AGENTS.md 규칙을 따른다.\n\n'
   feature_brief_block "$1"
   printf '\n'
   implement_rules
   implement_mode_rules "$1" "$2"
-  printf '\n# 품질 기준 (검증 대조표 항목)\n\n'
+  printf '\n# 품질 기준 (검증 대조표 항목 · 기준 버전 %s)\n\n' "$(criteria_version)"
   print_review_criteria
+}
+
+# 구현 프롬프트를 낼 때의 기준 버전을 원장에 남긴다. 검증 때 기준이 바뀌었으면 알린다.
+remember_criteria_at_implementation() {  # remember_criteria_at_implementation <id>
+  set_feature_fields "$1" "$(jq -cn --arg v "$(criteria_version)" --argjson ids "$(criteria_ids_json)" \
+    '{implementedUnder: {criteriaVersion: $v, criteriaIds: $ids}}')"
+}
+
+# 구현 시점 기준과 지금 기준이 다르면 한 단락 (같으면 빈 출력)
+criteria_change_notice() {  # criteria_change_notice <id>
+  local then now added
+  then="$(jq -r --arg id "$1" '.features[] | select(.id == $id) | .implementedUnder.criteriaVersion // empty' "$(features_file)")"
+  now="$(criteria_version)"
+  [[ -z "$then" || "$then" == "$now" ]] && return 0
+  added="$(jq -r --arg id "$1" --argjson now "$(criteria_ids_json)" \
+    '(.features[] | select(.id == $id) | .implementedUnder.criteriaIds // []) as $old
+     | [$now[] | select(. as $x | $old | index($x) | not)] | join(", ")' "$(features_file)")"
+  printf '⚠️ 구현 시점의 기준(%s)과 지금 기준(%s)이 다르다.' "$then" "$now"
+  [[ -n "$added" ]] && printf ' 구현 뒤에 추가된 항목: %s — 구현자는 이 항목을 모르고 구현했다. 대조표에서 특히 본다.' "$added"
+  printf '\n\n'
 }
 
 # emit_implement_prompt <id> [--mode M] [--json]
@@ -91,11 +123,14 @@ emit_implement_prompt() {
   mode="${mode:-sequential}"
   [[ "$mode" =~ ^($IMPLEMENT_MODES)$ ]] || die "$EXIT_USAGE" "--mode 는 sequential · isolated · shared"
   prompt="$(implement_prompt "$id" "$mode")"
+  remember_criteria_at_implementation "$id"
   emit "$(json_mode_of "$@")" "$(jq -cn --arg id "$id" --arg mode "$mode" --arg p "$prompt" '{id: $id, mode: $mode, prompt: $p}')" "$prompt"
 }
 
 # ── 검증자 ──────────────────────────────────────────────────────────
 review_prompt_header() {  # review_prompt_header <id>
+  one_shot_notice "$1" "검증"
+  criteria_change_notice "$1"
   cat <<HEADER
 너는 기능 $1 을 구현하지 않은 독립 검증자다. 파일을 고치거나 커밋하지 않는다.
 아래 프로토콜·기준·대조표 항목·변경을 읽고, 바뀐 파일은 직접 열어 확인한 뒤 대조표를 낸다.

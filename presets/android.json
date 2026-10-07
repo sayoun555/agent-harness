@@ -108,5 +108,33 @@
       "*crypto*",
       "*proguard*"
     ]
+  },
+  "runtime": {
+    "_about": "켜려면 enabled 를 true 로, appId 를 앱 패키지로. 에뮬레이터나 기기가 adb 에 연결돼 있어야 한다. 화면은 실제 확인할 화면에 맞게 바꾼다. 릴리스 축소(minify) 확인이 필요하면 setup 을 installRelease 로.",
+    "enabled": false,
+    "appId": "",
+    "setup": [
+      {
+        "name": "설치",
+        "command": "./gradlew installDebug --console=plain -q"
+      },
+      {
+        "name": "실행",
+        "command": "adb shell am start -W -n {appId}/.MainActivity"
+      }
+    ],
+    "screens": [
+      {
+        "name": "첫 화면",
+        "command": "sleep 2 && adb exec-out screencap -p > {out}"
+      }
+    ],
+    "log": "adb logcat -d -t 300 '*:W'",
+    "teardown": [
+      {
+        "name": "종료",
+        "command": "adb shell am force-stop {appId}"
+      }
+    ]
   }
 }

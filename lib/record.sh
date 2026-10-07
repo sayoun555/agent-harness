@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# record.sh — 기록 정책. source 전용. lib/changes.sh · lib/park.sh · lib/features.sh 가 필요하다.
+# record.sh — 기록 정책. source 전용. lib/changes.sh · lib/park.sh · lib/features.sh · lib/drift.sh 가 필요하다.
 #
 # 명령 코드는 운용 방식을 모른다. 여기 세 가지만 부른다.
 #   record_passing     통과를 남긴다
@@ -49,14 +49,25 @@ commit_passing() {  # commit_passing <id> <suffix>
   return 1
 }
 
+# touched_paths → 이 기능이 바꾼 파일 (SCOPE 가 있으면 그 안에서). scope_of 다음에 부른다.
+touched_paths() {
+  changed_files ${SCOPE[@]+"${SCOPE[@]}"}
+  deleted_files ${SCOPE[@]+"${SCOPE[@]}"}
+}
+
 # record_passing <id> <suffix> <status-on-failure> → 실패하면 원장을 되돌리고 1 (RECORD_ERROR)
+#   통과 표시와 검증한 파일의 해시(drift)를 커밋 전에 원장에 함께 쓴다. 커밋에 원장이 같이 담긴다.
 record_passing() {
-  local id="$1" suffix="$2" rollback_status="$3"
+  local id="$1" suffix="$2" rollback_status="$3" ledger_before path touched=()
   scope_of "$id"   # 범위는 원장을 바꾸기 전에 읽는다 (기준선을 이 기능의 경로만 갱신하려고)
+  while IFS= read -r path; do [[ -n "$path" ]] && touched+=("$path"); done < <(touched_paths)
+  ledger_before="$(cat "$(features_file)")"
   set_feature_fields "$id" "$(jq -cn --arg at "$(utc_now)" '{status: "passing", passedAt: $at, scope: null}')"
+  remember_verified_files "$id" ${touched[@]+"${touched[@]}"}
   if auto_commit_enabled; then
     commit_passing "$id" "$suffix" && return 0
-    set_feature_fields "$id" "$(jq -cn --arg s "$rollback_status" '{status: $s, passedAt: null}')"
+    printf '%s\n' "$ledger_before" > "$(features_file)"   # 다른 기능의 해시 갱신까지 되돌린다
+    set_feature_fields "$id" "$(jq -cn --arg s "$rollback_status" '{status: $s}')"
     return 1
   fi
   baseline_save ${SCOPE[@]+"${SCOPE[@]}"}

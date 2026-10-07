@@ -18,6 +18,7 @@ source "$HARNESS_HOME/lib/size.sh"
 source "$HARNESS_HOME/lib/record.sh"
 source "$HARNESS_HOME/lib/criteria.sh"
 source "$HARNESS_HOME/lib/verdict.sh"
+source "$HARNESS_HOME/lib/runtime.sh"
 source "$HARNESS_HOME/lib/design.sh"
 require_commands git jq
 project_is_plugged_in || { info "review: 이 프로젝트에 하네스가 없다 — 건너뜀"; exit 0; }
@@ -52,6 +53,7 @@ print_feature_context() {  # print_feature_context <id>
   print_design_reference "$id"
   print_change_section "$id"
   print_gate_warnings "$id"
+  print_runtime_evidence "$id"
 }
 
 # 바뀐 파일에 대한 check 게이트 경고(크기·메서드 수·하드코딩·금지 import·약한 마커).

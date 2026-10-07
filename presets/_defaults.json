@@ -107,5 +107,15 @@
     "profile": "component/strict",
     "outDir": ".harness/figma",
     "components": []
+  },
+  "runtime": {
+    "_about": "실행 렌즈(harness run). 앱을 설치·실행하고 화면을 찍고 로그를 받아 검증자에게 넘긴다. 무거우니 기본은 꺼짐. 켜면 feature verify 의 마지막 게이트로 기능마다 한 번 돈다. 명령의 {out}=스크린샷 경로, {appId}, {dir}=이번 실행 폴더.",
+    "enabled": false,
+    "appId": "",
+    "setup": [],
+    "screens": [],
+    "log": "",
+    "teardown": [],
+    "maxScreens": 6
   }
 }

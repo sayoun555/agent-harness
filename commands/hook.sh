@@ -15,6 +15,7 @@ source "$HARNESS_HOME/lib/common.sh"
 source "$HARNESS_HOME/lib/features.sh"
 source "$HARNESS_HOME/lib/shim.sh"
 source "$HARNESS_HOME/lib/governing.sh"
+source "$HARNESS_HOME/lib/drift.sh"
 
 EVENT="${1:-}"
 HOOK_INPUT="$(cat 2>/dev/null || true)"
@@ -73,17 +74,31 @@ point_to_governing_docs() {
 }
 
 # ── PostToolUse ─────────────────────────────────────────────────────
+# 이미 검증을 통과한 기능의 파일을 고치면, 그 변경은 어떤 검증도 거치지 않는다. 바로 알린다.
+verified_owner_notice() {  # verified_owner_notice <상대 경로>
+  local owners
+  [[ -f "$(features_file)" ]] || return 0
+  owners="$(passing_features_owning "$1" | paste -sd ',' -)"
+  [[ -z "$owners" ]] && return 0
+  printf '📌 %s 은 이미 검증을 통과한 기능(%s)의 파일이다. 이 변경은 검증되지 않았다.\n' "$1" "$owners"
+  printf '   새 작업이면 harness feature add 로 새 기능을 올린다. 그대로 두면 다음 루프의 사전 점검이 그 기능을 다시 연다.\n'
+}
+
 on_post_edit() {
-  local target output
+  local target relative output notice
   target="$(edited_file)"
   [[ -z "$target" || ! -f "$target" ]] && pass_silently
-  if output="$(cd "$PROJECT_ROOT" && bash "$HARNESS_HOME/commands/check.sh" "$(relative_to_project "$target")" 2>&1)"; then
-    grep -q '⚠️' <<<"$output" || pass_silently
-    jq -cn --arg ctx "$output" '{hookSpecificOutput: {hookEventName: "PostToolUse", additionalContext: $ctx}}'
+  relative="$(relative_to_project "$target")"
+  if ! output="$(cd "$PROJECT_ROOT" && bash "$HARNESS_HOME/commands/check.sh" "$relative" 2>&1)"; then
+    jq -cn --arg reason "하네스 결정론 게이트 실패 — 지금 고친다:
+$output" '{decision: "block", reason: $reason}'
     return
   fi
-  jq -cn --arg reason "하네스 결정론 게이트 실패 — 지금 고친다:
-$output" '{decision: "block", reason: $reason}'
+  grep -q '⚠️' <<<"$output" || output=""
+  notice="$(cd "$PROJECT_ROOT" && verified_owner_notice "$relative")"
+  [[ -z "$output$notice" ]] && pass_silently
+  jq -cn --arg ctx "$(printf '%s\n%s' "$output" "$notice" | awk 'NF')" \
+    '{hookSpecificOutput: {hookEventName: "PostToolUse", additionalContext: $ctx}}'
 }
 
 # ── Stop ────────────────────────────────────────────────────────────

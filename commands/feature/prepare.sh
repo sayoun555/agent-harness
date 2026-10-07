@@ -65,10 +65,21 @@ check_working_tree_ready() {
   PREFLIGHT_NOTES+=("기준선을 지금 상태로 저장했다 — 이후 변경은 이 기준선과 비교한다")
 }
 
+# 검증을 통과한 뒤 손으로 고친 기능은 다시 대기열로 — 이번 루프가 다시 검증한다
+reopen_drifted_for_loop() {
+  [[ -f "$(features_file)" ]] || return 0
+  local id files
+  while IFS=$'\t' read -r id files; do
+    [[ -n "$id" ]] && PREFLIGHT_NOTES+=("검증 후 변경된 기능 $id 를 다시 연다: $files")
+  done < <(reopen_drifted_features)
+  return 0
+}
+
 cmd_preflight() {
   PREFLIGHT_PROBLEMS=()
   PREFLIGHT_NOTES=()
   check_ledger_ready
+  reopen_drifted_for_loop
   check_working_tree_ready
   local ok=true problems_json='[]' notes_json='[]' mcp_json
   [[ ${#PREFLIGHT_PROBLEMS[@]} -gt 0 ]] && { ok=false; problems_json="$(printf '%s\n' "${PREFLIGHT_PROBLEMS[@]}" | lines_to_json)"; }
