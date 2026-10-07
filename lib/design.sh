@@ -74,6 +74,14 @@ table_rows() {
     }'
 }
 
+# 설계 결정 표에서 사람이 내린 결정("사람 결정: <답>")만 [{question, answer}] 로
+human_decisions_json() {  # human_decisions_json <doc>
+  table_rows "$1" "설계 결정" | jq -Rsc '
+    split("\n") | map(select(length > 0) | split("\t"))
+    | map(select((.[4] // "") | startswith("사람 결정: "))
+          | {question: "\(.[0]) \(.[1])", answer: (.[4] | ltrimstr("사람 결정: "))})'
+}
+
 # ── 검사 ────────────────────────────────────────────────────────────
 DESIGN_PROBLEMS=()
 DESIGN_UNRESOLVED=()

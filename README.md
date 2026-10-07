@@ -12,10 +12,12 @@
 | `check` | 강한 stub 마커·하드코딩 시크릿 | 차단 |
 | `check` | 약한 마커(임시·추후·일단)·파일 크기·하드코딩 값(프리셋 패턴) | 경고 |
 | `test-guard` | 테스트 케이스·assertion 합계 감소, skip 증가 | 차단 (파일별 감소는 경고) |
-| `feature` | 기능 원장. 통과 판정은 하네스가 acceptance 를 실행해서만 기록 | — |
+| `feature` | 기능 원장. 게이트 통과(verified) → 독립 검증 통과(reviewed) → 기록(passing) | — |
 | `risk` | 위험 파일(결제·인증 등) 변경 시 자동 커밋 대신 사람 승인 | 승인 대기 |
 | `design` | 설계 기준 · 설계 문서 양식 · 문서 검사 · 검사를 통과한 설계만 원장에 | 검사 실패면 원장에 안 들어감 |
-| `review` | 스택 기준·footgun 으로 의미 적대자 컨텍스트 생성 | 루프에서 반려 |
+| `review` | 공통·스택 코드 기준, footgun, 변경 diff, 게이트 경고로 독립 검증자 컨텍스트 생성 | 반려는 원장에 기록 |
+| `baseline` | 커밋 없이 운용할 때의 비교 기준 (git 트리 객체, 커밋 아님) | — |
+| `lock` | 빌드 잠금. 같은 트리에서 여러 에이전트가 빌드할 때 | — |
 | `trace` | 노드마다 한 줄 JSONL. 반복 감지·비용·부품 빼 보기 실험의 원천 | — |
 | `feature-loop` | 위 부품을 잇는 제한 루프 워크플로우. 순차 또는 병렬 | — |
 | `loop` | 사람 없이 루프 실행(할 일이 없으면 토큰 0), cron 줄 출력, GitHub 트리거 템플릿 | — |
@@ -36,10 +38,17 @@ curl -fsSL https://raw.githubusercontent.com/sayoun555/agent-harness/main/instal
 
 하는 일은 세 가지다.
 1. 하네스를 `~/.agent-harness` 에 받는다.
-2. 이 프로젝트에 끼운다. 스택(spring · nextjs · generic)은 자동 감지하고, 직접 고르려면 `| bash -s -- --preset spring`.
+2. 이 프로젝트에 끼운다. 스택(android · spring · nextjs · generic)은 빌드 파일 내용으로 자동 감지하고, 직접 고르려면 `| bash -s -- --preset spring`.
 3. Claude Code 플러그인을 **이 프로젝트에만** 켠다. 다른 프로젝트에는 스킬도 훅도 로드되지 않는다.
 
 끝나면 `.harness/`, `.claude/settings.json`, `.gitignore` 를 커밋한다. 팀원이 clone 하면 같은 설정을 받는다.
+
+**git 에 아무것도 남기지 않으려면** `| bash -s -- --local --no-commit`.
+
+| 옵션 | 하는 일 |
+|---|---|
+| `--local` | 추적 대상 파일을 건드리지 않는다. 무시 목록은 `.git/info/exclude`, 플러그인은 `.claude/settings.local.json`, 설계 문서는 `.harness/design/` |
+| `--no-commit` | 하네스가 커밋·브랜치·ref 를 만들지 않는다 (`loop.autoCommit: false`). 기록은 원장과 기준선에만 남는다 |
 
 ## 쓰기: Claude Code 에서 말로
 
@@ -67,16 +76,31 @@ curl -fsSL https://raw.githubusercontent.com/sayoun555/agent-harness/main/instal
    | `common.md` | C1~C5: 완성 정의, 되돌리기 어려운 결정은 사람에게, 필요한 만큼만, 검증 가능, 기존 관례 | 전부 |
    | `frontend.md` | F1~F5: 데이터·표현 분리, 상태 구분, 모든 상태, 디자인 시스템, 접근성·성능 | nextjs |
    | `backend.md` | B1~B9: 정석, 의존성 방향, 도메인이 규칙을 가짐, 일관성 등급, 브로커는 근거 있을 때만, API 계약, 데이터 접근, 비밀, 모던 Java | spring |
-   | `backend-code.md` | K1~K9 (코드 기준, 검증자가 판정): 이름, 작은 메서드, 단일 책임, Tell-Don't-Ask, 원시 타입 포장, 일급 컬렉션, SOLID, 디자인 패턴은 조건이 맞을 때만, 타입 있는 설정 | spring |
+   | `code-common.md` | Q1~Q6 (코드 기준, 스택과 상관없이 항상): 정석으로 해결(땜빵 금지), 상태 기계는 상태 기계로, 동시성 전략은 하나, 같은 문제는 같은 방식으로, 하나의 책임과 크기, 실패를 숨기지 않기 | 전부 |
+   | `backend-code.md` | K1~K9 (코드 기준): 이름, 작은 메서드, 단일 책임, Tell-Don't-Ask, 원시 타입 포장, 일급 컬렉션, SOLID, 디자인 패턴은 조건이 맞을 때만, 타입 있는 설정 | spring |
+   | `android-code.md` | A1~A6 (코드 기준): 단방향 UI 상태, 구조화된 코루틴, 수명주기 수집, 데이터 주인은 하나, 하드웨어 콜백은 한 경계, DI 일관 | android |
 
    코드 기준은 구현자에게 주입하지 않는다. 검증자의 판정 컨텍스트에 들어가고, 구현자는 `harness review --criteria` 로 볼 수 있다.
+   검증 컨텍스트에는 바뀐 파일의 게이트 경고(크기·메서드 수·하드코딩·금지 import)도 들어간다. `rules.sizePolicy: block-growth` 면 새로 만들었거나 이번에 커져서 한도를 넘은 파일이 게이트를 막는다.
    결정론으로 잡을 수 있는 것은 check 게이트가 경고한다: public 메서드 수(K3), 금지된 import(B2, `severity: block` 이면 차단), 하드코딩 URL(K9).
 2. **문서**: `design/templates/design.md` 양식. 완성 정의, 범위 밖, 현재 상태, 설계 결정, 구성 요소, 검증 계획, 기능 분해.
 3. **검사**: `harness design check` 가 빈 절, 사람 결정 대기, 검증 방법이 없는 구성 요소, 잘못된 기능 분해를 잡는다.
-4. **원장**: `harness design import` 는 검사를 통과한 설계만 원장에 넣는다. 기능마다 설계 문서가 붙어서, 구현자와 검증자가 합의된 설계를 따른다.
+4. **원장**: `harness design import` 는 검사를 통과한 설계만 원장에 넣는다. 기능마다 설계 문서와 사람이 내린 결정이 붙어서, 구현자와 검증자가 합의된 설계를 따른다.
 
 되돌리기 어려운 결정(스키마·외부 API 계약·인증·공개 URL)은 에이전트가 정하지 않고 사람에게 묻는다.
 기준은 초안이다. 우선순위와 적용 조건은 프로젝트 소유자가 고쳐 확정한다.
+
+## 운용 방식
+
+| | 커밋으로 운용 (기본) | 커밋 없이 (`--no-commit`) |
+|---|---|---|
+| 비교 기준 | HEAD | 기준선 (`harness baseline save`, git 트리 객체) |
+| 통과 기록 | 기능마다 git 커밋 | 원장 passing + 기준선 갱신 |
+| 막힘·승인 대기 기능의 변경 | `harness/<id>` 브랜치에 보관 | `.harness/parked/<id>.patch` 에 보관 |
+| 병렬 | 각자 워크트리 | 같은 트리 + 기능별 범위(claim) + 빌드 잠금 |
+
+두 방식 모두 비교는 git 트리 두 개의 diff 라서, 커밋이 0개인 저장소에서도 새 파일·스테이징·untracked 를 모두 본다.
+**루프를 쓰지 않아도** 기능마다 구현과 검증은 서로 다른 서브에이전트가 한다 (스킬 2B, `feature brief` → `verify` → 검증 서브에이전트 → `review` → `record`).
 
 ## 트리거와 병렬
 
@@ -145,16 +169,18 @@ GitHub 트리거는 main 에 직접 커밋하지 않고 PR 을 연다. 사람이
 ## 테스트
 
 ```bash
-bash tests/run.sh                     # 결정론 부품 85개
+bash tests/run.sh                     # 결정론 부품 111개
 node tests/workflow-sim.mjs           # 루프 그래프: LLM 만 가짜, 하네스 명령은 실제 실행
 node tests/workflow-sim-parallel.mjs  # 병렬 분기: 실제 git 워크트리, 충돌 포함
+node tests/workflow-sim-ledger.mjs    # 커밋 없는 운용: 커밋 0개 저장소, 같은 트리 병렬, 커밋·ref 0개 확인
 ```
 
 ## 알려진 한계
 
-- 실제 모델로는 작은 기능 두 개(순차, headless 트리거)만 돌려 봤다. 규모 있는 기능·병렬 모드·GitHub 트리거는 시뮬레이션과 템플릿 검사까지만 했다.
+- 실제 모델로는 작은 기능 두 개(순차, headless 트리거)만 돌려 봤다. 규모 있는 기능·병렬 모드·커밋 없는 운용·GitHub 트리거는 시뮬레이션과 템플릿 검사까지만 했다.
+- 같은 트리 병렬은 기능들이 서로 다른 파일을 맡을 때만 안전하다. 같은 파일을 고치는 기능은 순차로 돌린다.
 - 결정론 노드는 에이전트가 명령을 실행하고 결과를 전달한다. 전달이 틀려도 원장이 기준이지만, 루프의 분기 판단은 그 전달에 기댄다.
 - 에이전트가 `jq` 로 원장을 직접 바꾸는 것까지는 막지 않는다. `feature audit` 가 acceptance 를 다시 돌려 거짓 통과를 되돌린다.
 - Figma 렌즈는 가짜 엔진으로 인자와 판정만 확인했다. 실제 Figma 파일과 비교해 보지는 않았다.
 - Codex 어댑터, CI 게이트 템플릿, GitHub 루프 트리거 템플릿은 실제 환경에서 돌려 보지 않았다. 문법 검사와 단위 테스트까지다.
-- 설계 기준(C·F·B)은 초안이다. 이 저장소를 쓰는 사람이 우선순위와 적용 조건을 고쳐 확정한다.
+- 설계·코드 기준(C·F·B·Q·K·A)은 초안이다. 이 저장소를 쓰는 사람이 우선순위와 적용 조건을 고쳐 확정한다.

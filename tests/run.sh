@@ -625,6 +625,13 @@ test_design_import_adds_features_with_design_reference() {
   assert_contains "$(h design import docs/design/calc.md)" "건너뜀 2개"
 }
 
+test_design_import_carries_human_decisions_into_features() {
+  write_design docs/design/calc.md "사람 결정: 로컬 저장소"
+  h design import docs/design/calc.md >/dev/null
+  assert_eq "$(jq -c '.features[0].decisions' .harness/features.json)" '[{"question":"D2 저장 방식","answer":"로컬 저장소"}]'
+  assert_contains "$(h feature brief calc-sub)" "- D2 저장 방식 → 로컬 저장소" "(구현 지시문에 자동으로 들어간다)"
+}
+
 test_review_context_points_to_agreed_design() {
   write_design docs/design/calc.md "사람 결정: 없음"
   h design import docs/design/calc.md >/dev/null

@@ -8,6 +8,7 @@
 #   review-context 문서       독립 검토자에게 줄 컨텍스트 (프로토콜 + 기준 + 문서)
 #   features 문서 [--json]    기능 분해 표를 기능 원장 형식으로 (추가는 하지 않음)
 #   import 문서               check 를 통과한 설계의 기능 분해를 원장에 추가한다. 이미 있는 id 는 건너뛴다
+#                            설계 결정 표의 "사람 결정: <답>" 은 각 기능의 decisions 로 옮긴다
 #
 set -euo pipefail
 source "$HARNESS_HOME/lib/common.sh"
@@ -81,14 +82,16 @@ cmd_import() {
     cmd_check "$doc" || true
     die "$EXIT_GATE_FAILED" "설계 검사를 통과하지 못해 원장에 넣지 않았다. 위 문제와 사람 결정을 먼저 해결한다."
   fi
-  local ledger added=0 skipped=0 id desc acceptance
+  local ledger added=0 skipped=0 id desc acceptance decisions
   ledger="$(project_path "$(cfg '.state.featuresFile')")"
+  decisions="$(human_decisions_json "$doc")"   # 사람이 내린 결정은 기능마다 붙어 구현 지시문에 들어간다
   while IFS=$'\t' read -r id desc acceptance; do
     [[ -z "$id" ]] && continue
     if [[ -f "$ledger" ]] && jq -e --arg id "$id" '.features[] | select(.id == $id)' "$ledger" >/dev/null; then
       skipped=$((skipped + 1)); continue
     fi
-    bash "$HARNESS_HOME/commands/feature.sh" add --id "$id" --desc "$desc" --acceptance "$acceptance" --design "$doc" >/dev/null
+    bash "$HARNESS_HOME/commands/feature.sh" add --id "$id" --desc "$desc" --acceptance "$acceptance" \
+      --design "$doc" --decisions-json "$decisions" >/dev/null
     added=$((added + 1))
   done < <(table_rows "$doc" "기능 분해")
   echo "➕ 설계 $doc → 기능 ${added}개 추가 (이미 있어 건너뜀 ${skipped}개)"
