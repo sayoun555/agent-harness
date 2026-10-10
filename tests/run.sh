@@ -750,6 +750,92 @@ test_figma_agent_definitions_match_known_servers() {
   done
 }
 
+# ── 기본 동작 점검 ─────────────────────────────────────────────────
+enable_baseline_checks() {
+  jq '.design.baselineChecks = [{id: "S1", title: "동시 수정 경합", ask: "동시에 고칠 수 있는가"},
+                                {id: "S2", title: "멱등성", ask: "두 번 와도 한 번인가"}]' \
+    .harness/project.json > p && mv p .harness/project.json
+}
+
+append_baseline_section() {  # append_baseline_section <doc> <S1 행> [S2 행]
+  local doc="$1"; shift
+  printf '\n## 기본 동작 점검\n\n| ID | 항목 | 판단 | 기능 | 방법·이유 |\n|---|---|---|---|---|\n' >> "$doc"
+  printf '%s\n' "$@" >> "$doc"
+}
+
+test_design_new_prefills_baseline_rows() {
+  enable_baseline_checks
+  local doc
+  doc="$(h design new calc)"
+  assert_contains "$(cat "$doc")" "| S1 | 동시 수정 경합 |  |  |  |"
+  assert_contains "$(cat "$doc")" "| S2 | 멱등성 |  |  |  |"
+  assert_contains "$(h design check "$doc")" "기본 동작 S1 의 판단이 올바르지 않다: ''"
+  assert_contains "$(h design criteria)" "- S1 동시 수정 경합: 동시에 고칠 수 있는가"
+}
+
+test_design_check_requires_every_baseline_item() {
+  enable_baseline_checks
+  write_design docs/design/calc.md "사람 결정: 없음"
+  assert_contains "$(h design check docs/design/calc.md)" "절이 없다: ## 기본 동작 점검"
+  append_baseline_section docs/design/calc.md "| S1 | 동시 수정 경합 | 반영 | calc-sub | 버전 컬럼으로 낙관적 락 |"
+  assert_contains "$(h design check docs/design/calc.md)" "기본 동작 점검이 빠졌다: S2 멱등성"
+}
+
+test_design_check_validates_baseline_judgments() {
+  enable_baseline_checks
+  write_design docs/design/calc.md "사람 결정: 없음"
+  append_baseline_section docs/design/calc.md \
+    "| S1 | 동시 수정 경합 | 반영 | calc-div | 버전 컬럼 |" \
+    "| S2 | 멱등성 | 해당 없음 |  |  |"
+  local out
+  out="$(h design check docs/design/calc.md)"
+  assert_contains "$out" "기본 동작 S1 의 기능 'calc-div' 가 기능 분해에 없다"
+  assert_contains "$out" "기본 동작 S2 를 해당 없음으로 둔 이유를 적는다"
+}
+
+test_baseline_human_decision_blocks_import_until_answered() {
+  enable_baseline_checks
+  write_design docs/design/calc.md "사람 결정: 없음"
+  append_baseline_section docs/design/calc.md \
+    "| S1 | 동시 수정 경합 | 사람 결정 필요 |  | 낙관적 락 · 비관적 락 |" \
+    "| S2 | 멱등성 | 해당 없음 |  | 쓰기가 없는 계산 함수다 |"
+  assert_contains "$(h design check docs/design/calc.md)" "S1 동시 수정 경합: 낙관적 락 · 비관적 락"
+  assert_exit 1 h design import docs/design/calc.md
+}
+
+test_design_import_attaches_baseline_to_its_feature() {
+  enable_baseline_checks
+  write_design docs/design/calc.md "사람 결정: 없음"
+  append_baseline_section docs/design/calc.md \
+    "| S1 | 동시 수정 경합 | 반영 | calc-sub | 버전 컬럼으로 낙관적 락 |" \
+    "| S2 | 멱등성 | 해당 없음 |  | 쓰기가 없는 계산 함수다 |"
+  assert_exit 0 h design check docs/design/calc.md
+  h design import docs/design/calc.md >/dev/null
+  assert_eq "$(jq -c '.features[0].baseline' .harness/features.json)" '[{"id":"S1","title":"동시 수정 경합","how":"버전 컬럼으로 낙관적 락"}]'
+  assert_eq "$(jq -r '.features[1] | has("baseline")' .harness/features.json)" "false" "(맡지 않은 기능에는 붙지 않는다)"
+  assert_contains "$(h prompt implement calc-sub)" "- S1 동시 수정 경합: 버전 컬럼으로 낙관적 락"
+  assert_contains "$(h review --context calc-sub)" "## 이 기능이 맡은 기본 동작"
+}
+
+test_design_table_keeps_empty_middle_cells() {
+  write_design docs/design/calc.md "사람 결정: 없음"
+  sed -i.bak 's/| v1.2 · 2026-09-01 |/|  |/' docs/design/calc.md && rm -f docs/design/calc.md.bak
+  local out
+  out="$(h design check docs/design/calc.md)"
+  assert_contains "$out" "요구 원천 'docs/SRS.md' 에 판·날짜가 없다"
+  [[ "$out" != *"종류가 올바르지 않다"* ]] || fail "빈 칸 때문에 뒤 칸이 앞으로 밀렸다: $out"
+}
+
+test_preset_baseline_items_are_well_formed() {
+  local preset
+  for preset in spring android nextjs; do
+    jq -e '.design.baselineChecks | length > 0
+           and all(.[]; (.id | test("^[A-Z][0-9]+$")) and (.title | length > 0) and (.ask | length > 0))
+           and ((map(.id) | unique | length) == length)' "$ROOT/presets/$preset.json" >/dev/null \
+      || fail "$preset 프리셋의 기본 동작 점검 항목 형식이 틀렸다"
+  done
+}
+
 test_review_context_points_to_agreed_design() {
   write_design docs/design/calc.md "사람 결정: 없음"
   h design import docs/design/calc.md >/dev/null

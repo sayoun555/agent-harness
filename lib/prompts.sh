@@ -26,6 +26,9 @@ feature_brief_block() {  # feature_brief_block <id>
     "기능 id: \(.id)\n설명: \(.description)\n완료 기준(acceptance): `\(.acceptance)`"
     + (if .designDoc then "\n설계 문서: \(.designDoc) — 이 기능에 해당하는 구성 요소·설계 결정·요구 원천 절만 찾아 읽고 그대로 따른다." else "" end)
     + (if (.figma // "") != "" then "\n\n[화면 기준 — Figma] \(.figma)\n- 이 노드를 Figma MCP 로 열어 레이아웃·간격·색·글꼴·상태(빈·로딩·오류)를 확인하고 그대로 만든다. 파일 전체를 훑지 않는다.\n- 저장소의 디자인 시스템(토큰·공용 컴포넌트)이 있으면 그것으로 표현한다. 값을 하드코딩해 흉내 내지 않는다.\n- Figma 를 열 수 없으면 추측해서 만들지 않는다. 판단 요청(needsDecision)으로 그렇다고 알린다." else "" end)
+    + (if (.baseline // []) | length > 0
+       then "\n\n[이 기능이 맡은 기본 동작 — 설계에서 반영하기로 했다]\n" + ([.baseline[] | "- \(.id) \(.title): \(.how)"] | join("\n"))
+       else "" end)
     + (if (.decisions // []) | length > 0
        then "\n\n[사람이 내린 결정 — 그대로 따른다]\n" + ([.decisions[] | "- \(.question) → \(.answer)"] | join("\n"))
        else "" end)

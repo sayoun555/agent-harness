@@ -94,7 +94,9 @@
       "common.md"
     ],
     "docsDir": "docs/design",
-    "maxRequirementsPerFeature": 6
+    "maxRequirementsPerFeature": 6,
+    "_baselineAbout": "기본 동작 점검 항목. 설계 문서의 '기본 동작 점검' 표에서 항목마다 반영(맡을 기능) · 해당 없음(이유) · 사람 결정 필요 중 하나를 고른다. 의무가 아니라 빠뜨림을 막는 질문이다. 스택 항목은 프리셋에, 프로젝트는 project.json 에서 배열을 통째로 다시 적어 더하거나 뺀다.",
+    "baselineChecks": []
   },
   "governingDoc": {
     "_about": "편집 직전에 지배 설계 문서를 알려 준다. 기본은 꺼져 있다(파일럿에서 정확도 효과 ≈0). 예: map: [{globs: [\"*controller*\"], docs: [\"docs/API.md\"]}], alwaysForExtension: {java: [\"AGENTS.md\"]}",

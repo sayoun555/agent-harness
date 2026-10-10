@@ -52,6 +52,7 @@ print_feature_context() {  # print_feature_context <id>
   echo
   print_design_reference "$id"
   print_figma_reference "$id"
+  print_baseline_reference "$id"
   print_change_section "$id"
   print_gate_warnings "$id"
   print_runtime_evidence "$id"
@@ -102,6 +103,17 @@ print_limited_diff() {  # print_limited_diff <최대 줄> [paths...]
   rm -f "$diff_file"
   (( total > limit )) && echo "(diff ${total}줄 중 ${limit}줄만 보였다. 나머지는 바뀐 파일을 직접 Read 한다)"
   return 0
+}
+
+# 설계에서 이 기능이 맡기로 한 기본 동작. 빠졌으면 요구 위반이다
+print_baseline_reference() {
+  local items
+  items="$(jq -r --arg id "$1" '.features[] | select(.id == $id) | (.baseline // [])[] | "- \(.id) \(.title): \(.how)"' "$(features_file)")"
+  [[ -z "$items" ]] && return 0
+  echo "## 이 기능이 맡은 기본 동작 (설계에서 반영하기로 함)"
+  printf '%s\n' "$items"
+  echo "- 하나라도 빠졌거나 다른 방법으로 했으면 REQ 위반이다."
+  echo
 }
 
 # 기능에 Figma 화면이 붙어 있으면, 같은 노드와 구현을 비교한다
