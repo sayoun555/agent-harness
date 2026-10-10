@@ -86,13 +86,14 @@ curl -fsSL https://raw.githubusercontent.com/sayoun555/agent-harness/main/instal
    | `common.md` | C1~C5: 완성 정의, 되돌리기 어려운 결정은 사람에게, 필요한 만큼만, 검증 가능, 기존 관례 | 전부 |
    | `frontend.md` | F1~F5: 데이터·표현 분리, 상태 구분, 모든 상태, 디자인 시스템, 접근성·성능 | nextjs |
    | `backend.md` | B1~B9: 정석, 의존성 방향, 도메인이 규칙을 가짐, 일관성 등급, 브로커는 근거 있을 때만, API 계약, 데이터 접근, 비밀, 모던 Java | spring |
-   | `code-common.md` | Q1~Q6 (코드 기준, 스택과 상관없이 항상): 정석으로 해결(땜빵 금지), 상태 기계는 상태 기계로, 동시성 전략은 하나, 같은 문제는 같은 방식으로, 하나의 책임과 크기, 실패를 숨기지 않기 | 전부 |
-   | `backend-code.md` | K1~K9 (코드 기준): 이름, 작은 메서드, 단일 책임, Tell-Don't-Ask, 원시 타입 포장, 일급 컬렉션, SOLID, 디자인 패턴은 조건이 맞을 때만, 타입 있는 설정 | spring |
+   | `code-common.md` | Q1~Q9 (코드 기준, 스택과 상관없이 항상): 정석으로 해결(땜빵 금지), 상태 기계는 상태 기계로, 동시성 전략은 하나, 같은 문제는 같은 방식으로, 하나의 책임과 크기, 실패를 숨기지 않기, 과설계 금지, 이름이 의도를 드러냄, 함수는 한 가지 일과 얕은 분기(삼항은 단순한 값 선택 한 단계만) | 전부 |
+   | `oop-code.md` | K4~K8 (코드 기준, Java·Kotlin): Tell-Don't-Ask, 원시 타입 포장, 일급 컬렉션, SOLID, 디자인 패턴은 조건이 맞을 때만. K1~K3 은 공통 Q8·Q9·Q5 로 옮겼다 | spring · android |
+   | `spring-code.md` | K9 (코드 기준): 타입 있는 설정 | spring |
    | `android-code.md` | A1~A6 (코드 기준): 단방향 UI 상태, 구조화된 코루틴, 수명주기 수집, 데이터 주인은 하나, 하드웨어 콜백은 한 경계, DI 일관 | android |
 
    코드 기준은 구현 프롬프트와 검증자의 판정 컨텍스트에 들어간다. 구현자가 반려될 기준을 미리 알고 시작하게 하려는 것이다.
    검증 컨텍스트에는 바뀐 파일의 게이트 경고(크기·메서드 수·하드코딩·금지 import)도 들어간다. `rules.sizePolicy: block-growth` 면 새로 만들었거나 이번에 커져서 한도를 넘은 파일이 게이트를 막는다.
-   결정론으로 잡을 수 있는 것은 check 게이트가 경고한다: public 메서드 수(K3), 금지된 import(B2, `severity: block` 이면 차단), 하드코딩 URL(K9).
+   결정론으로 잡을 수 있는 것은 check 게이트가 경고한다: public 메서드 수(Q5), 금지된 import(B2, `severity: block` 이면 차단), 하드코딩 URL(K9).
 2. **문서**: `design/templates/design.md` 양식. 요구 원천, 완성 정의, UX·레퍼런스, 범위 밖, 현재 상태, 설계 결정, 구성 요소, 검증 계획, 기능 분해, 기본 동작 점검, 요구 추적.
    기능 분해의 "화면" 칸에 그 기능이 만들 화면의 Figma 노드 링크를 적는다(없으면 `-`). 원장에 들어가 구현자와 검증자가 그 노드를 Figma MCP 로 연다.
 3. **검사**: `harness design check` 가 잡는 것:
@@ -203,7 +204,7 @@ GitHub 트리거는 main 에 직접 커밋하지 않고 PR 을 연다. 사람이
 |---|---|
 | 요구 위반 | REQ |
 | 동작 회귀 | REG |
-| 품질 기준 위반 | 공통 Q1~Q7 · 스택(K·A …) · 프로젝트 `.harness/criteria/` (P …) |
+| 품질 기준 위반 | 공통 Q1~Q9 · 스택(K·A …) · 프로젝트 `.harness/criteria/` (P …) |
 
 모든 항목에 `kept` · `violated(파일:줄)` · `na` 중 하나를 적는다. 위반의 고칠 방법도 구조로 제안한다. 특정 상태만 막는 분기는 제안하지 않고, 제안을 기준에 스스로 대조한다.
 구현한 뒤 기준이 바뀌었으면(기준 파일 내용 해시가 다르면) 검증 프롬프트와 `feature verify` 가 경고하고, 구현 뒤에 추가된 항목을 알려 준다. 빠진 항목이 있거나 위반이 하나라도 있으면 반려다. 구조 문제는 "사소한 개선" 이 아니라 기준 위반이다.
@@ -240,7 +241,7 @@ GitHub 트리거는 main 에 직접 커밋하지 않고 PR 을 연다. 사람이
 ## 테스트
 
 ```bash
-bash tests/run.sh                     # 결정론 부품 155개
+bash tests/run.sh                     # 결정론 부품 156개
 node tests/workflow-sim.mjs           # 루프 그래프: LLM 만 가짜, 하네스 명령은 실제 실행
 node tests/workflow-sim-parallel.mjs  # 병렬 분기: 실제 git 워크트리, 충돌 포함
 node tests/workflow-sim-ledger.mjs    # 커밋 없는 운용: 커밋 0개 저장소, 같은 트리 병렬, 커밋·ref 0개 확인

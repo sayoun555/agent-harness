@@ -74,7 +74,7 @@ warn_hardcodes() {  # warn_hardcodes <file>
   return 0
 }
 
-# public 메서드 수 (K3) — 반환 타입이 있는 public 선언. 생성자와 타입 선언은 세지 않는다.
+# public 메서드 수 (Q5) — 반환 타입이 있는 public 선언. 생성자와 타입 선언은 세지 않는다.
 count_public_methods() {
   # BSD grep 과 GNU grep 에서 같게 동작하도록 단순한 ERE 만 쓴다(복잡한 대괄호 식은 구현마다 다르다).
   # "public <반환 타입> <소문자로 시작하는 이름>(" — 생성자(대문자 이름)와 필드(괄호 없음)는 맞지 않는다.
@@ -134,7 +134,7 @@ check_file() {
     local methods
     methods="$(count_public_methods "$file")"
     if [[ "$methods" -gt "$MAX_PUBLIC_METHODS" ]]; then
-      printf '⚠️ [methods] %s (public 메서드 %s개 > %s) — 책임이 둘 이상인지 본다 (K3)\n' "$file" "$methods" "$MAX_PUBLIC_METHODS"
+      printf '⚠️ [methods] %s (public 메서드 %s개 > %s) — 책임이 둘 이상인지 본다 (Q5)\n' "$file" "$methods" "$MAX_PUBLIC_METHODS"
       warned=1
     fi
   fi

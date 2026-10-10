@@ -1042,7 +1042,19 @@ test_review_criteria_always_include_common_code_criteria() {
   assert_contains "$out" "Q1. 정석으로 해결한다 — 땜빵 금지"
   assert_contains "$out" "Q2. 상태 기계는 상태 기계로 만든다"
   assert_contains "$out" "Q3. 동시성 전략은 하나"
-  assert_eq "$(grep -c 'K6\.' <<<"$out" || true)" "0" "(generic 에는 Spring 기준이 없다)"
+  assert_contains "$out" "Q8. 이름이 의도를 드러낸다"
+  assert_contains "$out" "삼항 연산자는 잘 쓰지 않는다"
+  assert_eq "$(grep -c 'K6\.' <<<"$out" || true)" "0" "(generic 에는 객체지향 기준이 없다)"
+}
+
+test_android_gets_oop_criteria_but_not_spring_ones() {
+  jq '.preset = "android"' .harness/project.json > p && mv p .harness/project.json
+  local out
+  out="$(h review --criteria)"
+  assert_contains "$out" "K4. 객체에 일을 시킨다"
+  assert_contains "$out" "Kotlin 이면 \`@JvmInline value class\`"
+  assert_contains "$out" "A1. 화면 상태는 하나의 불변 상태로 흐른다"
+  assert_eq "$(grep -c 'K9\.' <<<"$out" || true)" "0" "(Spring 설정 기준은 Android 에 없다)"
 }
 
 test_review_context_carries_code_criteria() {
@@ -1184,7 +1196,7 @@ test_review_checklist_all_kept_approves() {
   h feature verify sub >/dev/null 2>&1
   assert_exit 0 h feature review sub --verdict-json "$(full_checklist sub)"
   assert_eq "$(status_of sub)" "reviewed"
-  assert_eq "$(jq -r '.features[0].lastReview.checks | length' .harness/features.json)" "9" "(REQ·REG·Q1~Q7 대조표가 원장에 남는다)"
+  assert_eq "$(jq -r '.features[0].lastReview.checks | length' .harness/features.json)" "11" "(REQ·REG·Q1~Q9 대조표가 원장에 남는다)"
 }
 
 test_review_checklist_violation_rejects_with_location() {
@@ -1468,7 +1480,7 @@ test_runtime_lens_is_off_by_default() {
 test_review_warns_when_criteria_changed_after_implementation() {
   add_feature sub "빼기" 'true'
   h prompt implement sub >/dev/null
-  assert_eq "$(jq -r '.features[0].implementedUnder.criteriaIds | length' .harness/features.json)" "7" "(Q1~Q7)"
+  assert_eq "$(jq -r '.features[0].implementedUnder.criteriaIds | length' .harness/features.json)" "9" "(Q1~Q9)"
   assert_eq "$(h prompt review sub | grep -c '기준이 다르다' || true)" "0" "(기준이 그대로면 알리지 않는다)"
   h criteria add --title "같은 정보를 두 번 담지 않는다" --rule "한 값은 한 필드에만" >/dev/null
   assert_contains "$(h prompt review sub)" "구현 뒤에 추가된 항목: P1"

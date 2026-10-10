@@ -90,7 +90,8 @@
     ],
     "criteria": [
       "backend.md",
-      "backend-code.md"
+      "oop-code.md",
+      "spring-code.md"
     ]
   },
   "approval": {

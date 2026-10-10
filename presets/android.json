@@ -60,7 +60,8 @@
   },
   "review": {
     "criteria": [
-      "android-code.md"
+      "android-code.md",
+      "oop-code.md"
     ],
     "guidance": [],
     "footguns": [

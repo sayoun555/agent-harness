@@ -47,7 +47,7 @@
     "guidance": [],
     "footguns": [],
     "criteria": [],
-    "_criteriaAbout": "commonCriteria 는 스택과 상관없이 항상, criteria 는 스택 기준. 검증자가 판정할 때 읽는다(design/criteria/ 의 이름이나 프로젝트 경로). 구현자에게는 내용을 주입하지 않고 볼 수 있는 명령만 알려 준다.",
+    "_criteriaAbout": "commonCriteria 는 스택과 상관없이 항상, criteria 는 스택 기준(design/criteria/ 의 이름이나 프로젝트 경로). 구현 프롬프트와 검증 대조표에 함께 들어간다.",
     "maxDiffLines": 800,
     "commonCriteria": [
       "code-common.md"
