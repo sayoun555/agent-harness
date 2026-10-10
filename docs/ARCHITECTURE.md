@@ -82,6 +82,18 @@ pending ─verify─▶ verified ─review --approve─▶ reviewed ─record─
 나중에 그 파일 내용이 다르면 "검증 후 변경됨" 이다. 루프 사전 점검과 `feature audit` 가 그 기능을 pending 으로 되돌려 다시 게이트·검증을 거치게 한다. 편집 직후 훅은 이미 통과한 기능의 파일이라고 알려 준다(막지 않는다).
 다른 기능이 같은 파일을 고쳐 검증을 통과하면 그 변경은 검증된 것이다. 그래서 기록할 때 앞서 통과한 기능들의 같은 파일 해시도 새 내용으로 맞춘다. 정당한 후속 변경으로 앞 기능이 다시 열리지 않는다.
 
+## 서브에이전트 종류
+
+| 역할 | 정의 | 언제 |
+|---|---|---|
+| 명령 실행 | `agent-harness:harness-runner` (Bash) | 결정론 노드 전부 |
+| 구현 | `agent-harness:harness-implementer` | 화면(Figma)이 없는 기능 |
+| 검증 | `agent-harness:harness-reviewer` | 화면이 없고, MCP 화면 확인 지시도 없을 때 |
+| Figma 구현 · 검증 | `agent-harness:harness-figma-*` (+ Figma MCP) | 기능에 Figma 링크가 있고, 아는 이름의 Figma MCP 가 연결됐을 때 |
+| 기본 에이전트 | — | 플러그인이 꺼져 있을 때, Figma 조건 미달인 Figma 기능, MCP 화면 확인 지시가 붙은 검증 |
+
+이름은 preflight 가 조건을 보고 `agents` 로 준다(`lib/agents.sh`). loop run 과 스킬은 그 값을 루프 인자로 넘긴다. Figma 서버 이름 목록과 정의의 tools 는 짝이고, 테스트가 맞는지 본다.
+
 ## 소유권과 단계별 변경 해시
 
 범위(claim)가 없는 기능은 작업 트리 전체를 자기 변경으로 본다. 그래서 같은 트리에 변경이 남아 있을 수 있는 다른 기능이 있으면 verify · review · record · approve 가 멈춘다(`require_sole_owner`, `lib/record.sh`).

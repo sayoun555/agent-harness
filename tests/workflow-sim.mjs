@@ -19,6 +19,7 @@ import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import assert from 'node:assert/strict'
 
+const TAIL_FIGMA = 'https://www.figma.com/design/abc?node-id=7-8'
 const questions_cache = "Redis 와 메모리 캐시 중 무엇으로? ('it's' 따옴표 포함)"
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
@@ -28,7 +29,7 @@ const HARNESS = join(ROOT, 'bin/harness')
 // 가짜 claude: `claude mcp list` 에 Playwright 가 연결된 것처럼 답한다 (실제 MCP 설정은 건드리지 않음)
 const FAKE_BIN = mkdtempSync(join(tmpdir(), 'fake-claude-'))
 writeFileSync(join(FAKE_BIN, 'claude'),
-  '#!/usr/bin/env bash\n[[ "$1 $2" == "mcp list" ]] && echo "playwright: npx -y @playwright/mcp@latest - ✔ Connected"\n',
+  '#!/usr/bin/env bash\n[[ "$1 $2" == "mcp list" ]] && printf "%s\\n" "playwright: npx -y @playwright/mcp@latest - ✔ Connected" "figma: npx -y figma-developer-mcp --stdio - ✔ Connected"\n',
   { mode: 0o755 })
 const ENV = { ...process.env, PATH: `${FAKE_BIN}:${process.env.PATH}` }
 
@@ -59,7 +60,7 @@ function makeProject() {
   add('sub', '빼기', 'grep -q "const sub" src/math.js', '--design docs/design/calc.md')
   add('div', '나누기', 'test -f src/div.js')
   add('pay', '결제', 'test -f src/payment.js')
-  add('tail', '꼬리', 'test -f src/tail.js')
+  add('tail', '꼬리', 'test -f src/tail.js', `--figma '${TAIL_FIGMA}'`)
   add('cache', '캐싱', 'true')
   add('mul', '곱하기', 'false')
   run('git add -A && git commit -qm init')
@@ -182,7 +183,9 @@ try {
   // 검증자는 MCP 로 화면을 봐야 해서(위 지시) MCP 도구가 있는 기본 에이전트로 띄운다.
   const types = fakeAgent.calls.agentTypes
   assert.deepEqual([...types.runner], ['agent-harness:harness-runner'])
-  assert.deepEqual([...types.implement], ['agent-harness:harness-implementer'])
+  // Figma 화면이 붙은 tail 은 Figma MCP 를 가진 정의로, 나머지는 가벼운 정의로 구현한다
+  assert.deepEqual([...types.implement], ['agent-harness:harness-implementer', 'agent-harness:harness-figma-implementer'])
+  assert.match(fakeAgent.calls.implementPrompts.tail, /\[화면 기준 — Figma\] https:\/\/www\.figma\.com\/design\/abc\?node-id=7-8/)
   assert.deepEqual([...types.review], [undefined])
 
   console.log('✓ feature-loop 그래프 시뮬레이션 통과')

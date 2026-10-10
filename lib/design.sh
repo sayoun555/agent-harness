@@ -115,12 +115,13 @@ check_components_are_verifiable() {
 }
 
 check_feature_breakdown() {
-  local doc="$1" id desc acceptance count=0
-  while IFS=$'\t' read -r id desc acceptance; do
+  local doc="$1" id desc acceptance screen count=0
+  while IFS=$'\t' read -r id desc acceptance screen; do
     [[ -z "$id$desc$acceptance" ]] && continue
     count=$((count + 1))
     [[ "$id" =~ ^[a-z0-9]+(-[a-z0-9]+)*$ ]] || problem "기능 id 는 영문 소문자 kebab-case: '$id'"
     [[ -z "$acceptance" ]] && problem "기능 $id 에 acceptance 가 없다"
+    [[ -z "$screen" || "$screen" == "-" || "$screen" =~ ^https?:// ]] || problem "기능 $id 의 화면은 Figma 링크(https://…) 또는 - : '$screen'"
   done < <(table_rows "$doc" "기능 분해")
   [[ "$count" -eq 0 ]] && problem "기능 분해가 비어 있다"
   return 0

@@ -51,6 +51,7 @@ print_feature_context() {  # print_feature_context <id>
   jq -r '"- id: \(.id)\n- 설명: \(.description)\n- acceptance: \(.acceptance)"' <<<"$(feature_json "$id")"
   echo
   print_design_reference "$id"
+  print_figma_reference "$id"
   print_change_section "$id"
   print_gate_warnings "$id"
   print_runtime_evidence "$id"
@@ -101,6 +102,18 @@ print_limited_diff() {  # print_limited_diff <최대 줄> [paths...]
   rm -f "$diff_file"
   (( total > limit )) && echo "(diff ${total}줄 중 ${limit}줄만 보였다. 나머지는 바뀐 파일을 직접 Read 한다)"
   return 0
+}
+
+# 기능에 Figma 화면이 붙어 있으면, 같은 노드와 구현을 비교한다
+print_figma_reference() {
+  local figma
+  figma="$(feature_field "$1" figma)"
+  [[ -z "$figma" ]] && return 0
+  echo "## 화면 기준 (Figma): $figma"
+  echo "- 이 노드를 Figma MCP 로 열어 구현과 비교한다: 레이아웃·간격·색·글꼴·상태(빈·로딩·오류)."
+  echo "- \"실행 확인\" 절의 스크린샷이 있으면 그것과도 비교한다. 다르면 REQ 위반이다(where 에 파일:줄, note 에 무엇이 다른지)."
+  echo "- Figma 를 열 수 없으면 REQ 를 kept 로 적지 않는다. violated 로 \"Figma 를 열 수 없어 화면을 확인하지 못함\" 이라고 적는다."
+  echo
 }
 
 # 기능이 설계 문서에서 왔으면, 합의된 설계 결정과 어긋났는지도 본다

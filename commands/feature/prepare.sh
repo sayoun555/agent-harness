@@ -4,13 +4,14 @@
 #
 
 cmd_add() {
-  local id desc acceptance design decisions file
+  local id desc acceptance design decisions figma file
   id="$(flag_value --id "$@")"
   desc="$(flag_value --desc "$@")"
   acceptance="$(flag_value --acceptance "$@")"
   design="$(flag_value --design "$@")"
   decisions="$(flag_value --decisions-json "$@")"
-  [[ -n "$id" && -n "$desc" && -n "$acceptance" ]] || die "$EXIT_USAGE" "사용: feature add --id ID --desc 설명 --acceptance 명령 [--design 문서] [--decisions-json JSON]"
+  figma="$(flag_value --figma "$@")"
+  [[ -n "$id" && -n "$desc" && -n "$acceptance" ]] || die "$EXIT_USAGE" "사용: feature add --id ID --desc 설명 --acceptance 명령 [--design 문서] [--decisions-json JSON] [--figma 링크]"
   jq -e 'type == "array"' <<<"${decisions:-[]}" >/dev/null 2>&1 || die "$EXIT_USAGE" "--decisions-json 은 [{question, answer}] 배열"
   file="$(features_file)"
   [[ -f "$file" ]] || { mkdir -p "$(dirname "$file")"; echo '{"features":[]}' > "$file"; }
@@ -18,8 +19,9 @@ cmd_add() {
   json_update "$file" '.features += [{id: $id, description: $desc, acceptance: $acc,
                                        status: "pending", attempts: 0, repeats: 0}
                                       + (if $design == "" then {} else {designDoc: $design} end)
-                                      + (if ($decisions | length) == 0 then {} else {decisions: $decisions} end)]' \
-    --arg id "$id" --arg desc "$desc" --arg acc "$acceptance" --arg design "$design" \
+                                      + (if ($decisions | length) == 0 then {} else {decisions: $decisions} end)
+                                      + (if $figma == "" then {} else {figma: $figma} end)]' \
+    --arg id "$id" --arg desc "$desc" --arg acc "$acceptance" --arg design "$design" --arg figma "$figma" \
     --argjson decisions "${decisions:-[]}"
   echo "➕ 기능 추가: $id"
 }
@@ -98,6 +100,9 @@ cmd_preflight() {
   check_ledger_ready
   reopen_drifted_for_loop
   check_working_tree_ready
+  local figma_notice
+  figma_notice="$(figma_mcp_notice)"
+  [[ -n "$figma_notice" ]] && PREFLIGHT_NOTES+=("$figma_notice")
   local ok=true problems_json='[]' notes_json='[]' mcp_json
   [[ ${#PREFLIGHT_PROBLEMS[@]} -gt 0 ]] && { ok=false; problems_json="$(printf '%s\n' "${PREFLIGHT_PROBLEMS[@]}" | lines_to_json)"; }
   [[ ${#PREFLIGHT_NOTES[@]} -gt 0 ]] && notes_json="$(printf '%s\n' "${PREFLIGHT_NOTES[@]}" | lines_to_json)"

@@ -5,7 +5,7 @@
 
 cmd_list() {
   if has_flag --json "$@"; then jq -c '.features' "$(features_file)"; return; fi
-  jq -r '.features[] | "\(.status)\t\(.id)\t\(.description)"' "$(features_file)" | column -t -s $'\t'
+  jq -r '.features[] | "\(.status)\t\(.id)\t\(.description)\(if (.figma // "") != "" then "  [Figma]" else "" end)"' "$(features_file)" | column -t -s $'\t'
 }
 
 cmd_next() {

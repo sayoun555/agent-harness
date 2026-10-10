@@ -95,7 +95,9 @@ cmd_features() {
   require_doc "$doc"
   local rows
   rows="$(table_rows "$doc" "기능 분해" | jq -Rsc --arg doc "$doc" \
-    'split("\n") | map(select(length > 0) | split("\t") | {id: .[0], description: .[1], acceptance: .[2], designDoc: $doc})')"
+    'split("\n") | map(select(length > 0) | split("\t")
+       | {id: .[0], description: .[1], acceptance: .[2], designDoc: $doc}
+         + (if ((.[3] // "") | . != "" and . != "-") then {figma: .[3]} else {} end))')"
   if [[ "${1:-}" == "--json" ]]; then printf '%s\n' "$rows"; else jq -r '.[] | "\(.id)\t\(.description)\t\(.acceptance)"' <<<"$rows"; fi
 }
 
@@ -106,16 +108,17 @@ cmd_import() {
     cmd_check "$doc" || true
     die "$EXIT_GATE_FAILED" "설계 검사를 통과하지 못해 원장에 넣지 않았다. 위 문제와 사람 결정을 먼저 해결한다."
   fi
-  local ledger added=0 skipped=0 id desc acceptance decisions
+  local ledger added=0 skipped=0 id desc acceptance screen decisions
   ledger="$(project_path "$(cfg '.state.featuresFile')")"
   decisions="$(human_decisions_json "$doc")"   # 사람이 내린 결정은 기능마다 붙어 구현 지시문에 들어간다
-  while IFS=$'\t' read -r id desc acceptance; do
+  while IFS=$'\t' read -r id desc acceptance screen; do
     [[ -z "$id" ]] && continue
+    [[ "$screen" == "-" ]] && screen=""
     if [[ -f "$ledger" ]] && jq -e --arg id "$id" '.features[] | select(.id == $id)' "$ledger" >/dev/null; then
       skipped=$((skipped + 1)); continue
     fi
     bash "$HARNESS_HOME/commands/feature.sh" add --id "$id" --desc "$desc" --acceptance "$acceptance" \
-      --design "$doc" --decisions-json "$decisions" >/dev/null
+      --design "$doc" --decisions-json "$decisions" ${screen:+--figma "$screen"} >/dev/null
     added=$((added + 1))
   done < <(table_rows "$doc" "기능 분해")
   echo "➕ 설계 $doc → 기능 ${added}개 추가 (이미 있어 건너뜀 ${skipped}개)"

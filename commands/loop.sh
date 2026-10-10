@@ -15,6 +15,7 @@ set -euo pipefail
 source "$HARNESS_HOME/lib/common.sh"
 source "$HARNESS_HOME/lib/features.sh"
 source "$HARNESS_HOME/lib/shim.sh"
+source "$HARNESS_HOME/lib/mcp.sh"
 source "$HARNESS_HOME/lib/agents.sh"
 require_commands git jq
 project_is_plugged_in || die "$EXIT_CONFIG" "이 프로젝트에 하네스가 없다 (harness init)"

@@ -693,6 +693,63 @@ test_design_import_carries_human_decisions_into_features() {
   assert_contains "$(h feature brief calc-sub)" "- D2 저장 방식 → 로컬 저장소" "(구현 지시문에 자동으로 들어간다)"
 }
 
+# 기능 분해의 "화면" 칸 (Figma 노드 링크). 칸이 없는 예전 문서도 그대로 읽힌다.
+add_screen_column() {  # add_screen_column <doc> <calc-sub 화면> <calc-mul 화면>
+  sed -i.bak -e "/^| calc-sub |/ s#\$# $2 |#" -e "/^| calc-mul |/ s#\$# $3 |#" "$1" && rm -f "$1.bak"
+}
+
+test_design_import_carries_figma_screen() {
+  write_design docs/design/calc.md "사람 결정: 없음"
+  add_screen_column docs/design/calc.md "https://www.figma.com/design/abc?node-id=1-2" "-"
+  assert_exit 0 h design check docs/design/calc.md
+  h design import docs/design/calc.md >/dev/null
+  assert_eq "$(field_of calc-sub figma)" "https://www.figma.com/design/abc?node-id=1-2"
+  assert_eq "$(jq -r '.features[1] | has("figma")' .harness/features.json)" "false" "(- 는 화면 없음)"
+  assert_contains "$(h feature list)" "[Figma]"
+}
+
+test_design_check_rejects_screen_that_is_not_a_link() {
+  write_design docs/design/calc.md "사람 결정: 없음"
+  add_screen_column docs/design/calc.md "메인 화면" "-"
+  assert_exit 1 h design check docs/design/calc.md
+  assert_contains "$(h design check docs/design/calc.md)" "기능 calc-sub 의 화면은 Figma 링크"
+}
+
+test_figma_feature_carries_node_to_both_prompts() {
+  h feature add --id home --desc "홈 화면" --acceptance true --figma "https://www.figma.com/design/abc?node-id=3-4" >/dev/null
+  assert_contains "$(h prompt implement home)" "[화면 기준 — Figma] https://www.figma.com/design/abc?node-id=3-4"
+  assert_contains "$(h prompt implement home)" "Figma 를 열 수 없으면 추측해서 만들지 않는다"
+  assert_contains "$(h prompt review home)" "## 화면 기준 (Figma): https://www.figma.com/design/abc?node-id=3-4"
+  add_feature plain "화면 없음" 'true'
+  [[ "$(h prompt implement plain)" != *"화면 기준"* ]] || fail "화면 없는 기능에 Figma 지시가 붙었다"
+}
+
+test_preflight_offers_figma_agents_only_with_figma_mcp() {
+  h feature add --id home --desc "홈 화면" --acceptance true --figma "https://www.figma.com/design/abc?node-id=3-4" >/dev/null
+  git add -A && git commit -qm "add home"
+  local with without
+  with="$(fake_claude_bin 'figma: npx -y figma-developer-mcp --stdio - ✔ Connected')"
+  assert_eq "$(PATH="$with:$PATH" h feature preflight --json | jq -r '.agents.figmaImplementer + " " + .agents.figmaReviewer')" \
+    "agent-harness:harness-figma-implementer agent-harness:harness-figma-reviewer"
+  without="$(fake_claude_bin 'figma-other: npx x - ✔ Connected')"
+  local out
+  out="$(PATH="$without:$PATH" h feature preflight --json)"
+  assert_eq "$(jq -r '.agents | has("figmaImplementer")' <<<"$out")" "false" "(아는 이름의 Figma MCP 가 없으면 기본 에이전트)"
+  assert_contains "$(jq -r '.notes | join(" ")' <<<"$out")" "Figma 링크가 있는 기능(home): Figma MCP"
+}
+
+test_figma_agent_definitions_match_known_servers() {
+  local servers server tool file
+  servers="$(sed -n 's/^readonly FIGMA_MCP_SERVERS="\(.*\)"$/\1/p' "$ROOT/lib/agents.sh")"
+  [[ -n "$servers" ]] || fail "FIGMA_MCP_SERVERS 를 찾지 못했다"
+  for file in "$ROOT"/agents/harness-figma-*.md; do
+    for server in ${servers//|/ }; do
+      tool="mcp__${server//:/_}"
+      grep -q "^tools:.*\b$tool\b" "$file" || fail "$(basename "$file") 의 tools 에 $tool 이 없다 (FIGMA_MCP_SERVERS 와 짝)"
+    done
+  done
+}
+
 test_review_context_points_to_agreed_design() {
   write_design docs/design/calc.md "사람 결정: 없음"
   h design import docs/design/calc.md >/dev/null

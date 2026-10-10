@@ -35,6 +35,7 @@ test -f .harness/project.json && test -x .harness/bin/harness && echo plugged ||
    - 되돌리기 어려운 결정(스키마·외부 API 계약·인증·공개 URL)은 정하지 말고 상태를 `사람 결정 필요` 로, 선택지를 `선택` 열에 적는다.
    - 구성 요소마다 검증 계획에 한 줄 이상. 테스트 환경이 없으면 "테스트 환경 구성" 을 첫 구성 요소와 첫 기능으로 둔다.
    - 기능 분해의 acceptance 는 검증 계획의 명령에서 가져온다. 칸 안의 파이프는 `\|` 로 쓴다.
+   - 화면을 만드는 기능은 "화면" 칸에 그 화면의 Figma 노드 링크(node-id 포함)를 적는다. 화면 하나에 기능 하나가 기본이다. Figma 가 없으면 `-`.
    - 요구 추적: 1차 문서의 요구 ID 마다 기능 · 구성 요소 · 검증을 잇는다. 이번에 안 하는 요구는 기능을 `범위 밖` 으로 두고 범위 밖 절에 이유를 적는다.
    - 기능 하나가 요구를 너무 많이 맡으면(검사가 경고한다) 기능을 나눈다. 한 구현자에게 몰지 않는다.
 6. 검사를 돌린다. 문서 문제가 있으면 고치고 다시 돌린다. 요구 추적 요약도 본다.
@@ -107,6 +108,8 @@ test -f .harness/project.json && test -x .harness/bin/harness && echo plugged ||
 서브에이전트 종류(subagent_type)는 목록에 하네스 전용 정의가 있으면 그것을 쓴다. 도구를 필요한 것만 가져서 시작 비용이 기본 에이전트의 약 1/5이다.
 구현은 `agent-harness:harness-implementer`, 검증은 `agent-harness:harness-reviewer`. 목록에 없으면 기본 에이전트를 쓴다.
 검증자가 MCP 로 실제 화면을 확인해야 하면(검증 프롬프트에 MCP 지시가 있으면) 검증만 기본 에이전트로 띄운다. 전용 검증자에게는 MCP 도구가 없다.
+기능에 Figma 링크가 있으면(`feature list` 에 `[Figma]` 표시) 구현은 `agent-harness:harness-figma-implementer`, 검증은 `agent-harness:harness-figma-reviewer` 로 띄운다. Figma MCP 를 가진 정의다.
+사전 점검이 "Figma MCP 가 연결돼 있지 않다" 고 하면 Figma 기능은 기본 에이전트로 띄운다.
 
 1. **구현 서브에이전트**(Agent 도구)를 띄운다. 프롬프트는 이 한 줄이다.
    > 먼저 `.harness/bin/harness prompt implement ID` 를 실행하고, 출력된 지시를 그대로 따른다.

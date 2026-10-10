@@ -29,7 +29,7 @@
 | `loop` | 사람 없이 루프 실행(할 일이 없으면 토큰 0), cron 줄 출력, GitHub 트리거 템플릿 | — |
 | `mcp` | 프리셋이 권하는 MCP 의 연결 여부 확인 (설치하지 않음) | — |
 | `figma` | 렌더된 컴포넌트를 Figma 디자인과 측정 비교 (UI 전용, 꺼져 있음) | 미달이면 실패 |
-| `agents/` | 하네스 전용 서브에이전트 정의(명령 실행 · 구현 · 검증). 도구를 필요한 것만 가져 시작 토큰이 기본 에이전트의 약 1/5 | — |
+| `agents/` | 하네스 전용 서브에이전트 정의(명령 실행 · 구현 · 검증 · Figma 구현 · Figma 검증). 도구를 필요한 것만 가져 시작 토큰이 기본 에이전트의 약 1/5~1/4 | — |
 
 `check` 는 인자가 없으면 기준(HEAD 또는 기준선) 대비 바뀐 파일을, `--staged` 면 스테이징된 파일을, `--all` 이면 untracked 를 포함한 전체를 본다.
 
@@ -94,6 +94,7 @@ curl -fsSL https://raw.githubusercontent.com/sayoun555/agent-harness/main/instal
    검증 컨텍스트에는 바뀐 파일의 게이트 경고(크기·메서드 수·하드코딩·금지 import)도 들어간다. `rules.sizePolicy: block-growth` 면 새로 만들었거나 이번에 커져서 한도를 넘은 파일이 게이트를 막는다.
    결정론으로 잡을 수 있는 것은 check 게이트가 경고한다: public 메서드 수(K3), 금지된 import(B2, `severity: block` 이면 차단), 하드코딩 URL(K9).
 2. **문서**: `design/templates/design.md` 양식. 요구 원천, 완성 정의, UX·레퍼런스, 범위 밖, 현재 상태, 설계 결정, 구성 요소, 검증 계획, 기능 분해, 요구 추적.
+   기능 분해의 "화면" 칸에 그 기능이 만들 화면의 Figma 노드 링크를 적는다(없으면 `-`). 원장에 들어가 구현자와 검증자가 그 노드를 Figma MCP 로 연다.
 3. **검사**: `harness design check` 가 잡는 것:
    - 빈 절과 사람 결정 대기 (UX·레퍼런스는 지정이 없으면 "없음" 이라고 적는다. 비워 두면 막는다)
    - 1차 요구 문서가 없는 설계 (파생 문서만으로 설계하지 않는다)
@@ -167,8 +168,11 @@ GitHub 트리거는 main 에 직접 커밋하지 않고 PR 을 연다. 사람이
   | 기본(general-purpose) | 21,701 |
   | `agent-harness:harness-implementer` | 4,065 |
   | `agent-harness:harness-reviewer` | 3,511 |
+  | `agent-harness:harness-figma-implementer` | 5,781 |
+  | `agent-harness:harness-figma-reviewer` | 5,178 |
 
   실제 루프(같은 환경, 작은 기능 하나, 한 바퀴에 통과)에서 서브에이전트 토큰 합계는 기본 에이전트 약 44만~47만, 전용 정의 약 21만이었다.
+  Figma 링크가 있는 기능은 Figma MCP 를 가진 정의로 띄운다. 조건은 셋이다: 플러그인이 켜져 있다 · 그 기능에 Figma 링크가 있다 · 정의가 아는 이름(`figma`, `plugin:figma:figma`)의 Figma MCP 가 연결돼 있다. 하나라도 빠지면 그 기능만 기본 에이전트로 띄운다.
   프로젝트 CLAUDE.md 는 그대로 실린다. 검증자가 MCP 로 화면을 봐야 할 때만 기본 에이전트로 띄운다.
 - **대상 저장소에서 연 세션으로 작업한다.** 다른 저장소에서 연 세션이면 그 저장소의 CLAUDE.md·메모리가 모든 서브에이전트에 실린다.
 - **이 프로젝트에서 쓰지 않는 플러그인·MCP 는 끈다.** 전역으로 켠 것은 `/plugin` 에서 프로젝트 범위로 옮긴다. `claude mcp list` 로 확인한다.
@@ -226,7 +230,7 @@ GitHub 트리거는 main 에 직접 커밋하지 않고 PR 을 연다. 사람이
 ## 테스트
 
 ```bash
-bash tests/run.sh                     # 결정론 부품 143개
+bash tests/run.sh                     # 결정론 부품 148개
 node tests/workflow-sim.mjs           # 루프 그래프: LLM 만 가짜, 하네스 명령은 실제 실행
 node tests/workflow-sim-parallel.mjs  # 병렬 분기: 실제 git 워크트리, 충돌 포함
 node tests/workflow-sim-ledger.mjs    # 커밋 없는 운용: 커밋 0개 저장소, 같은 트리 병렬, 커밋·ref 0개 확인

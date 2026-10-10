@@ -104,6 +104,14 @@ let currentPhase = 'Preflight'
 let AGENTS = (args && args.agents) || {}
 function agentTypeOf(role) { return AGENTS[role] ? { agentType: AGENTS[role] } : {} }
 
+// Figma 화면이 붙은 기능은 Figma MCP 를 가진 정의로 띄운다. 그 정의가 없으면(조건 미달) 기본 에이전트.
+// 실제 화면을 MCP 로 확인하라는 지시(runtimeHints)가 붙은 검증은 그 MCP 를 가진 기본 에이전트로.
+function implementerOf(feature) { return agentTypeOf(feature.figma ? 'figmaImplementer' : 'implementer') }
+function reviewerOf(feature) {
+  if (runtimeHints.length) return {}
+  return agentTypeOf(feature.figma ? 'figmaReviewer' : 'reviewer')
+}
+
 async function runHarness(command, label) {
   const result = await agent(
     [
@@ -163,9 +171,7 @@ async function gateReviewRecord(feature, iteration) {
   }
 
   // 검증자가 응답하지 않으면 빈 대조표를 낸다. 하네스가 "빠진 항목" 으로 반려한다.
-  // 실제 화면을 MCP 로 확인하라는 지시가 붙으면, MCP 도구가 없는 전용 검증자 대신 기본 에이전트를 쓴다.
-  const reviewer = runtimeHints.length ? {} : agentTypeOf('reviewer')
-  const verdict = await agent(reviewPrompt(feature), { label: `검증:${tag}`, phase: 'Loop', schema: VERDICT, ...reviewer })
+  const verdict = await agent(reviewPrompt(feature), { label: `검증:${tag}`, phase: 'Loop', schema: VERDICT, ...reviewerOf(feature) })
     || { checks: [], summary: '검증자 응답 없음' }
   const reviewed = await runHarness(
     `feature review ${feature.id} --verdict-json ${shellQuote(JSON.stringify(verdict))} --json`, `판정:${tag}`)
@@ -178,7 +184,7 @@ async function gateReviewRecord(feature, iteration) {
 }
 
 function implement(feature, mode, schema, extra = {}) {
-  return agent(implementPrompt(feature, mode), { label: `구현:${tagOf(feature)}`, phase: 'Loop', schema, ...agentTypeOf('implementer'), ...extra })
+  return agent(implementPrompt(feature, mode), { label: `구현:${tagOf(feature)}`, phase: 'Loop', schema, ...implementerOf(feature), ...extra })
 }
 
 // ── 한 바퀴: 순차 ──────────────────────────────────────────────────
