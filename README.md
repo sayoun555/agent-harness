@@ -29,6 +29,7 @@
 | `loop` | 사람 없이 루프 실행(할 일이 없으면 토큰 0), cron 줄 출력, GitHub 트리거 템플릿 | — |
 | `mcp` | 프리셋이 권하는 MCP 의 연결 여부 확인 (설치하지 않음) | — |
 | `figma` | 렌더된 컴포넌트를 Figma 디자인과 측정 비교 (UI 전용, 꺼져 있음) | 미달이면 실패 |
+| `guard` | 클라우드 · 운영 DB · 배포를 바꾸는 셸 명령(terraform apply · supabase db push · oci … create · kubectl apply …)을 에이전트가 실행하려 하면 사람에게 묻는다. 사람이 없는 실행에서는 막힌다 | 사람 확인 |
 | `agents/` | 하네스 전용 서브에이전트 정의(명령 실행 · 구현 · 검증 · Figma 구현 · Figma 검증). 도구를 필요한 것만 가져 시작 토큰이 기본 에이전트의 약 1/5~1/4 | — |
 
 `check` 는 인자가 없으면 기준(HEAD 또는 기준선) 대비 바뀐 파일을, `--staged` 면 스테이징된 파일을, `--all` 이면 untracked 를 포함한 전체를 본다.
@@ -53,6 +54,15 @@ curl -fsSL https://raw.githubusercontent.com/sayoun555/agent-harness/main/instal
 끝나면 `.harness/`, `.claude/settings.json`, `.gitignore` 를 커밋한다. 팀원이 clone 하면 같은 설정을 받는다.
 
 **git 에 아무것도 남기지 않으려면** `| bash -s -- --local --no-commit`.
+
+**애드온.** 스택은 프리셋 하나지만, 함께 쓰는 서비스 · 인프라는 애드온으로 여러 개 얹는다. 저장소에 흔적이 있으면 자동으로 붙는다(`supabase/config.toml` · `@supabase/supabase-js`, `*.tf`). 직접 고르려면 `| bash -s -- --addons supabase,terraform`.
+
+| 애드온 | 더하는 것 |
+|---|---|
+| `supabase` | 위험 파일(마이그레이션 · config) 승인, 공개 환경 변수의 service_role 키 차단, 기본 동작 점검 SB1~SB7(RLS · 키 노출 · 스토리지 권한 · 마이그레이션 · 인증 흐름 · 실시간 구독 · 함수 비밀), RLS 관련 검증 주의 사항 |
+| `terraform` | Oracle Cloud · AWS · GCP · Azure 공통. `.tf` 변경은 사람 승인, 기본 동작 점검 IF1~IF7(상태 저장소 · 비밀 · 공개 범위 · 최소 권한 · 삭제 보호 · 비용 · 환경 분리), 열린 인바운드 · 코드 속 비밀 · 재생성 같은 검증 주의 사항 |
+
+애드온은 프리셋의 목록(점검 항목 · 위험 파일 · 주의 사항)에 더하기만 하고, 컴파일 명령 같은 하나뿐인 값은 바꾸지 않는다.
 
 | 옵션 | 하는 일 |
 |---|---|
@@ -193,7 +203,7 @@ GitHub 트리거는 main 에 직접 커밋하지 않고 PR 을 연다. 사람이
 
 ## 설정의 층
 
-`presets/_defaults.json` → `presets/<preset>.json` → `.harness/project.json` 순서로 덮는다. 객체는 깊게 병합, 배열은 교체.
+`presets/_defaults.json` → `presets/<preset>.json` → `presets/addons/<addon>.json`(배열은 이어 붙임) → `.harness/project.json` 순서로 덮는다. 객체는 깊게 병합, 배열은 교체.
 스택 전용 내용(footgun·판단 기준·테스트 패턴·위험 경로)은 전부 프리셋에 있다. 코어 스크립트와 적대자 프로토콜에는 스택 이름이 나오지 않는다.
 
 ## 검증 판정
@@ -241,7 +251,7 @@ GitHub 트리거는 main 에 직접 커밋하지 않고 PR 을 연다. 사람이
 ## 테스트
 
 ```bash
-bash tests/run.sh                     # 결정론 부품 156개
+bash tests/run.sh                     # 결정론 부품 164개
 node tests/workflow-sim.mjs           # 루프 그래프: LLM 만 가짜, 하네스 명령은 실제 실행
 node tests/workflow-sim-parallel.mjs  # 병렬 분기: 실제 git 워크트리, 충돌 포함
 node tests/workflow-sim-ledger.mjs    # 커밋 없는 운용: 커밋 0개 저장소, 같은 트리 병렬, 커밋·ref 0개 확인
@@ -258,4 +268,6 @@ node tests/workflow-sim-ledger.mjs    # 커밋 없는 운용: 커밋 0개 저장
 - 에이전트가 `jq` 로 원장을 직접 바꾸는 것까지는 막지 않는다. `feature audit` 가 acceptance 를 다시 돌려 거짓 통과를 되돌린다.
 - Figma 렌즈는 가짜 엔진으로 인자와 판정만 확인했다. 실제 Figma 파일과 비교해 보지는 않았다.
 - Codex 어댑터, CI 게이트 템플릿, GitHub 루프 트리거 템플릿은 실제 환경에서 돌려 보지 않았다. 문법 검사와 단위 테스트까지다.
+- 원격 변경 명령 확인은 Claude Code 훅에서만 한다. Codex 어댑터에는 없다. 명령 문자열로 판단하므로 스크립트 파일 안에서 부르거나 `bash -c` 로 감싸면 못 잡는다. 안전망이지 권한 경계가 아니다. 클라우드 자격 증명은 에이전트가 쓰는 셸에 두지 않는 것이 근본 대책이다.
+- Supabase · Terraform 애드온은 실제 프로젝트에 붙여 보지 않았다. 패턴과 병합은 단위 테스트까지다.
 - 설계·코드 기준(C·F·B·Q·K·A)은 초안이다. 이 저장소를 쓰는 사람이 우선순위와 적용 조건을 고쳐 확정한다.

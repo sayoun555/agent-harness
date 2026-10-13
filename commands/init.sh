@@ -2,8 +2,10 @@
 #
 # harness init — 이 프로젝트에 하네스를 끼운다. 여러 번 실행해도 안전하다(있는 파일은 건드리지 않음).
 #
-#   harness init [--preset 이름] [--local] [--no-commit] [--no-plugin] [--no-git-hooks] [--ci] [--ci-loop] [--codex]
+#   harness init [--preset 이름] [--addons a,b] [--local] [--no-commit] [--no-plugin] [--no-git-hooks] [--ci] [--ci-loop] [--codex]
 #
+#   --preset     스택 하나 (android · spring · nextjs · generic). 없으면 빌드 파일로 감지한다
+#   --addons     함께 쓰는 서비스 · 인프라 (supabase · terraform). 없으면 저장소 파일로 감지한다. 빈 값이면 쓰지 않는다
 #   --local      추적 대상 파일을 하나도 건드리지 않는다. 하네스는 이 머신의 이 클론에만 있다.
 #                무시 목록은 .git/info/exclude, 플러그인은 .claude/settings.local.json, 설계 문서는 .harness/design/
 #   --no-commit  하네스가 커밋·브랜치를 만들지 않는다 (loop.autoCommit: false)
@@ -29,6 +31,8 @@ readonly MARKETPLACE_NAME="agent-harness"
 readonly MARKETPLACE_REPO="sayoun555/agent-harness"
 
 PRESET=""
+ADDONS=""
+ADDONS_GIVEN=0
 LOCAL_ONLY=0
 NO_COMMIT=0
 WANT_PLUGIN=1
@@ -41,6 +45,7 @@ parse_args() {
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --preset)       PRESET="${2:-}"; shift ;;
+      --addons)       ADDONS="${2:-}"; ADDONS_GIVEN=1; shift ;;
       --local)        LOCAL_ONLY=1 ;;
       --no-commit)    NO_COMMIT=1 ;;
       --no-plugin)    WANT_PLUGIN=0 ;;
@@ -115,6 +120,27 @@ detect_preset() {
   fi
 }
 
+# 애드온 감지: 서비스 · 인프라의 흔적이 있으면 붙인다 (쉼표로)
+detect_addons() {
+  local found=()
+  if [[ -f "$PROJECT_ROOT/supabase/config.toml" ]] || package_json_depends_on @supabase/supabase-js; then found+=(supabase); fi
+  find "$PROJECT_ROOT" -maxdepth 3 -name '*.tf' -not -path '*/.terraform/*' -not -path '*/node_modules/*' -print 2>/dev/null \
+    | grep -q . && found+=(terraform)
+  [[ ${#found[@]} -gt 0 ]] && (IFS=,; printf '%s\n' "${found[*]}")
+  return 0
+}
+
+available_presets() { ls "$HARNESS_HOME/presets" | grep -v '^_' | grep '\.json$' | sed 's/\.json$//' | paste -sd ' ' -; }
+available_addons() { ls "$HARNESS_HOME/presets/addons" | sed 's/\.json$//' | paste -sd ' ' -; }
+
+require_known_addons() {
+  local name
+  for name in $(tr ',' ' ' <<<"$ADDONS"); do
+    [[ -f "$(addon_file_for "$name")" ]] || die "$EXIT_USAGE" "애드온이 없다: $name (있는 것: $(available_addons))"
+  done
+  return 0
+}
+
 write_if_absent() {  # write_if_absent <path> <content> <label>
   if [[ -e "$1" ]]; then
     info "ℹ️  $3 이미 있음 — 그대로 둔다"
@@ -127,16 +153,17 @@ write_if_absent() {  # write_if_absent <path> <content> <label>
 
 create_project_config() {
   local config
-  config="$(jq -n --arg preset "$PRESET" --argjson local "$LOCAL_ONLY" --argjson noCommit "$NO_COMMIT" '{
-    _about: "프리셋 위에 이 프로젝트만의 값을 덮어쓴다. 객체는 깊게 병합, 배열은 교체. 해석 결과: harness config",
+  config="$(jq -n --arg preset "$PRESET" --arg addons "$ADDONS" --argjson local "$LOCAL_ONLY" --argjson noCommit "$NO_COMMIT" '{
+    _about: "프리셋(스택 하나)과 애드온(서비스 · 인프라) 위에 이 프로젝트만의 값을 덮어쓴다. 객체는 깊게 병합, 배열은 교체. 해석 결과: harness config",
     preset: $preset,
+    addons: ($addons | split(",") | map(select(. != ""))),
     designDocsDir: "",
     build: {},
     approval: {}
   }
   + (if $local == 1 then {design: {docsDir: ".harness/design"}} else {} end)
   + (if $noCommit == 1 then {loop: {autoCommit: false}} else {} end)')"
-  write_if_absent "$PROJECT_CONFIG" "$config" ".harness/project.json (preset: $PRESET)"
+  write_if_absent "$PROJECT_CONFIG" "$config" ".harness/project.json (preset: $PRESET${ADDONS:+, addons: $ADDONS})"
 }
 
 create_feature_ledger() {
@@ -239,8 +266,10 @@ print_next_steps() {
 main() {
   parse_args "$@"
   [[ -z "$PRESET" ]] && PRESET="$(detect_preset)"
-  [[ -f "$(preset_file_for "$PRESET")" ]] || die "$EXIT_USAGE" "프리셋이 없다: $PRESET (있는 것: $(ls "$HARNESS_HOME/presets" | grep -v '^_' | sed 's/\.json$//' | paste -sd ' ' -))"
-  info "🧭 하네스 → $PROJECT_ROOT (preset: $PRESET)"
+  [[ "$ADDONS_GIVEN" -eq 1 ]] || ADDONS="$(detect_addons)"
+  [[ -f "$(preset_file_for "$PRESET")" ]] || die "$EXIT_USAGE" "프리셋이 없다: $PRESET (있는 것: $(available_presets))"
+  require_known_addons
+  info "🧭 하네스 → $PROJECT_ROOT (preset: $PRESET${ADDONS:+, addons: $ADDONS})"
   create_project_config
   create_feature_ledger
   create_shim

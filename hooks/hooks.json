@@ -5,7 +5,9 @@
     ],
     "PreToolUse": [
       { "matcher": "Edit|Write",
-        "hooks": [ { "type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/bin/harness\" hook pre-edit", "timeout": 10 } ] }
+        "hooks": [ { "type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/bin/harness\" hook pre-edit", "timeout": 10 } ] },
+      { "matcher": "Bash",
+        "hooks": [ { "type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/bin/harness\" hook pre-bash", "timeout": 10 } ] }
     ],
     "PostToolUse": [
       { "matcher": "Edit|Write",

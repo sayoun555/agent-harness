@@ -1,0 +1,83 @@
+{
+  "_about_terraform": "Terraform(OpenTofu) 애드온: Oracle Cloud · AWS · GCP · Azure 공통. 에이전트는 코드와 validate · plan 까지만 하고, apply · destroy 는 사람이 한다(guard.remoteCommands).",
+  "approval": {
+    "riskGlobs": [
+      "*.tf",
+      "*.tfvars",
+      "*.tfvars.json",
+      "*.hcl"
+    ]
+  },
+  "design": {
+    "baselineChecks": [
+      {
+        "id": "IF1",
+        "title": "상태 저장소",
+        "ask": "state 를 원격 백엔드(잠금 포함)에 두는가? 로컬 state 를 저장소에 커밋하지 않는가"
+      },
+      {
+        "id": "IF2",
+        "title": "비밀",
+        "ask": "비밀번호 · 키를 .tf · .tfvars 에 넣지 않고 비밀 저장소(OCI Vault · Secrets Manager 등)나 환경 변수로 받는가"
+      },
+      {
+        "id": "IF3",
+        "title": "공개 범위",
+        "ask": "보안 목록 · 보안 그룹 · NSG 에 0.0.0.0/0 인바운드가 있는가? 공개 IP · 공개 버킷이 꼭 필요한가"
+      },
+      {
+        "id": "IF4",
+        "title": "최소 권한",
+        "ask": "IAM 정책 · 동적 그룹이 필요한 자원과 동작으로 좁혀져 있는가"
+      },
+      {
+        "id": "IF5",
+        "title": "삭제 보호와 백업",
+        "ask": "DB · 버킷 · 볼륨에 삭제 보호와 백업 · 보존 정책이 있는가"
+      },
+      {
+        "id": "IF6",
+        "title": "비용",
+        "ask": "과금 자원(컴퓨트 · DB · 로드밸런서)의 크기 · 개수가 정해져 있고 태그로 주인을 알 수 있는가? 무료 등급 한도를 넘지 않는가"
+      },
+      {
+        "id": "IF7",
+        "title": "환경 분리",
+        "ask": "개발 · 운영이 다른 state(워크스페이스 · 디렉터리 · 계정)로 나뉘는가"
+      }
+    ]
+  },
+  "review": {
+    "footguns": [
+      {
+        "id": "tf-open-ingress",
+        "sev": "high",
+        "check": "0.0.0.0/0 에서 22 · 3389 · DB 포트로 들어오는 규칙. 관리 접속은 배스천 · VPN · 특정 대역으로."
+      },
+      {
+        "id": "tf-secret-in-code",
+        "sev": "high",
+        "check": ".tf · .tfvars 에 비밀번호 · 키 · 토큰 문자열. 변수(sensitive = true)와 비밀 저장소로."
+      },
+      {
+        "id": "tf-missing-prevent-destroy",
+        "sev": "med",
+        "check": "데이터를 가진 자원(DB · 버킷 · 볼륨)에 lifecycle { prevent_destroy = true } 나 삭제 보호가 없다."
+      },
+      {
+        "id": "tf-unpinned-provider",
+        "sev": "med",
+        "check": "provider · 모듈 버전을 고정하지 않았다. 다음 init 에서 동작이 바뀐다."
+      },
+      {
+        "id": "tf-replace-on-change",
+        "sev": "high",
+        "check": "plan 에서 데이터를 가진 자원이 replace(-/+) 된다. 이름 · 불변 속성 변경이 재생성을 부른다."
+      }
+    ],
+    "guidance": [
+      "인프라 기능의 acceptance 는 로컬에서 도는 것까지: terraform fmt -check -recursive && terraform init -backend=false -input=false && terraform validate. plan · apply 는 자격 증명이 있는 사람이 한다.",
+      "plan 결과를 받았으면 데이터를 가진 자원의 replace(-/+) · destroy 가 없는지 먼저 본다."
+    ]
+  }
+}

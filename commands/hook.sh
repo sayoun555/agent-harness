@@ -3,10 +3,11 @@
 # harness hook — 에디터 훅 어댑터 (Claude Code 플러그인 훅, Codex 어댑터가 부른다).
 #   stdin 으로 훅 JSON 을 받고, stdout 으로 훅 응답 JSON 을 낸다.
 #   하네스가 끼워지지 않은 프로젝트에서는 아무것도 하지 않는다.
-#   어떤 경우에도 턴을 멈추게 하지 않는다. 막는 것은 원장 직접 편집 하나뿐이다.
+#   어떤 경우에도 턴을 멈추게 하지 않는다. 막는 것은 원장 직접 편집과, 사람에게 묻는 원격 변경 명령이다.
 #
 #   harness hook session     SessionStart — 진행 상태 + 기능 원장 요약 주입
 #   harness hook pre-edit    PreToolUse(Edit|Write) — 기능 원장 직접 편집 거부
+#   harness hook pre-bash    PreToolUse(Bash) — 클라우드 · 운영 DB · 배포를 바꾸는 명령은 사람에게 묻는다
 #   harness hook post-edit   PostToolUse(Edit|Write) — 방금 바뀐 파일에 check
 #   harness hook stop        Stop — 전체 check, 문제가 있으면 경고만
 #
@@ -16,6 +17,7 @@ source "$HARNESS_HOME/lib/features.sh"
 source "$HARNESS_HOME/lib/shim.sh"
 source "$HARNESS_HOME/lib/governing.sh"
 source "$HARNESS_HOME/lib/drift.sh"
+source "$HARNESS_HOME/lib/remote.sh"
 
 EVENT="${1:-}"
 HOOK_INPUT="$(cat 2>/dev/null || true)"
@@ -62,6 +64,17 @@ on_pre_edit() {
   [[ "$(canonical_path "$target")" == "$ledger" ]] || { point_to_governing_docs "$target"; return; }
   jq -cn --arg reason "기능 원장($(cfg '.state.featuresFile'))은 직접 편집할 수 없다. 기능 추가는 '.harness/bin/harness feature add --id ID --desc 설명 --acceptance 명령', 통과 판정은 'harness feature verify ID' 가 한다." \
     '{hookSpecificOutput: {hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: $reason}}'
+}
+
+# 원격을 바꾸는 명령은 사람에게 묻는다(ask). 사람이 없는 실행(헤드리스 · 루프)에서는 물을 수 없어 실행되지 않는다.
+on_pre_bash() {
+  local command why
+  command="$(jq -r '.tool_input.command // empty' <<<"$HOOK_INPUT" 2>/dev/null || true)"
+  [[ -z "$command" ]] && pass_silently
+  why="$(remote_command_reason "$command")"
+  [[ -z "$why" ]] && pass_silently
+  jq -cn --arg reason "🛑 원격 변경 명령 — $why. 되돌리기 어렵고 돈이 들 수 있어 하네스는 에이전트가 직접 실행하지 않게 한다. 사람이 승인하거나 직접 실행한다(Claude Code 에서는 ! 로). 에이전트는 실행할 명령과 이유를 보고하고 멈춘다." \
+    '{hookSpecificOutput: {hookEventName: "PreToolUse", permissionDecision: "ask", permissionDecisionReason: $reason}}'
 }
 
 # 막지 않는다. 지배 문서가 설정돼 있으면 한 줄로 알려 줄 뿐이다.
@@ -112,7 +125,8 @@ $output" '{systemMessage: $msg}'
 case "$EVENT" in
   session)   on_session ;;
   pre-edit)  on_pre_edit ;;
+  pre-bash)  on_pre_bash ;;
   post-edit) on_post_edit ;;
   stop)      on_stop ;;
-  *)         die "$EXIT_USAGE" "사용: harness hook <session|pre-edit|post-edit|stop>" ;;
+  *)         die "$EXIT_USAGE" "사용: harness hook <session|pre-edit|pre-bash|post-edit|stop>" ;;
 esac

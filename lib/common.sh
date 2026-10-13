@@ -46,7 +46,7 @@ PROJECT_CONFIG="$PROJECT_HARNESS_DIR/project.json"
 project_is_plugged_in() { [[ -f "$PROJECT_CONFIG" ]]; }
 
 # ── 설정 해석 ───────────────────────────────────────────────────────
-# 해석 순서(뒤가 앞을 덮는다): defaults → preset → project.json
+# 해석 순서(뒤가 앞을 덮는다): defaults → preset → addons(배열은 이어 붙임) → project.json
 #   객체는 깊게 병합, 배열은 통째로 교체(jq `*` 의미).
 DEFAULTS_FILE="$HARNESS_HOME/presets/_defaults.json"
 RESOLVED_CONFIG=""
@@ -57,14 +57,36 @@ preset_file_for() {
   printf '%s\n' "$HARNESS_HOME/presets/$name.json"
 }
 
+# 애드온: 스택(프리셋 하나)과 함께 쓰는 서비스 · 인프라(Supabase · Terraform …). 여러 개를 겹친다.
+#   프리셋 위에 얹을 때 객체는 깊게 병합하고 배열은 이어 붙인다(이미 있는 항목은 빼고).
+#   그래서 애드온은 프리셋의 점검 항목 · 위험 글롭 · footgun 을 지우지 않고 더한다.
+#   project.json 은 지금처럼 맨 마지막에 덮는다(배열은 교체).
+addon_file_for() { printf '%s\n' "$HARNESS_HOME/presets/addons/$1.json"; }
+
+
 load_config() {
   [[ -n "$RESOLVED_CONFIG" ]] && return 0
-  local preset_name preset_file
+  local preset_name preset_file addons=()
   preset_name="$(jq -r '.preset // empty' "$PROJECT_CONFIG" 2>/dev/null || true)"
   preset_file="$(preset_file_for "$preset_name")"
   [[ -f "$preset_file" ]] || die "$EXIT_CONFIG" "프리셋이 없다: $preset_name ($preset_file)"
-  RESOLVED_CONFIG="$(jq -s '.[0] * .[1] * (.[2] | del(.preset))' \
-    "$DEFAULTS_FILE" "$preset_file" "$PROJECT_CONFIG")" \
+  local name file
+  while IFS= read -r name; do   # 없는 애드온이면 여기서(이 셸에서) 멈춘다
+    [[ -z "$name" ]] && continue
+    file="$(addon_file_for "$name")"
+    [[ -f "$file" ]] || die "$EXIT_CONFIG" "애드온이 없다: $name ($file)"
+    addons+=("$file")
+  done < <(jq -r '(.addons // [])[]' "$PROJECT_CONFIG" 2>/dev/null || true)
+  RESOLVED_CONFIG="$(jq -s '
+    def stack($base; $add):
+      if ($base | type) == "object" and ($add | type) == "object" then
+        reduce ($add | keys_unsorted[]) as $k ($base;
+          .[$k] = (if has($k) then stack(.[$k]; $add[$k]) else $add[$k] end))
+      elif ($base | type) == "array" and ($add | type) == "array" then
+        $base + [$add[] | select(. as $item | any($base[]; . == $item) | not)]
+      else $add end;
+    (reduce .[2:-1][] as $addon (.[0] * .[1]; stack(.; $addon))) * (.[-1] | del(.preset, .addons))' \
+    "$DEFAULTS_FILE" "$preset_file" ${addons[@]+"${addons[@]}"} "$PROJECT_CONFIG")" \
     || die "$EXIT_CONFIG" "설정 병합 실패 — JSON 문법을 확인하라: $PROJECT_CONFIG"
 }
 

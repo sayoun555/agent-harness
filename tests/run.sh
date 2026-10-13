@@ -1574,7 +1574,7 @@ test_init_local_refuses_ci_templates() {
 }
 
 # ── 스택 감지 ───────────────────────────────────────────────────────
-detected_preset() { rm -f .harness/project.json; h init --no-git-hooks --no-plugin 2>&1 | sed -n 's/.*(preset: \([a-z]*\)).*/\1/p' | head -1; }
+detected_preset() { rm -f .harness/project.json; h init --no-git-hooks --no-plugin 2>&1 | sed -n 's/.*(preset: \([a-z]*\)[,)].*/\1/p' | head -1; }
 
 test_detect_android_by_manifest() {
   mkdir -p app/src/main && echo '<manifest/>' > app/src/main/AndroidManifest.xml
@@ -1650,6 +1650,86 @@ test_size_policy_warn_does_not_block() {
 
 # ── 훅 ──────────────────────────────────────────────────────────────
 hook_input() { jq -cn --arg p "$1" '{tool_input: {file_path: $p}}'; }
+
+# ── 원격 변경 명령 ─────────────────────────────────────────────────
+bash_input() { jq -cn --arg c "$1" '{tool_name: "Bash", tool_input: {command: $c}}'; }
+pre_bash() { bash_input "$1" | CLAUDE_PROJECT_DIR="$PWD" h hook pre-bash; }
+
+test_hook_asks_before_remote_changing_commands() {
+  local cmd out
+  for cmd in "supabase db push" "cd infra && terraform apply -auto-approve" "oci compute instance terminate --instance-id x" \
+             "npx supabase functions deploy hello" "kubectl apply -f k.yaml" "aws s3 rm s3://b/x" "vercel --prod" "FOO=1 terraform destroy"; do
+    out="$(pre_bash "$cmd")"
+    assert_eq "$(jq -r .hookSpecificOutput.permissionDecision <<<"$out" 2>/dev/null)" "ask" "($cmd)"
+  done
+  assert_contains "$(pre_bash "supabase db push" | jq -r .hookSpecificOutput.permissionDecisionReason)" "Supabase 원격 프로젝트"
+}
+
+test_hook_lets_local_and_read_only_commands_through() {
+  local cmd
+  for cmd in "terraform plan" "terraform validate" "supabase start" "supabase db reset" "supabase migration new add_x" \
+             "oci compute instance list" "kubectl get pods" "aws s3 ls" "grep terraform apply README.md" "git commit -m 'terraform apply 고침'"; do
+    assert_eq "$(pre_bash "$cmd")" "" "($cmd)"
+  done
+}
+
+test_project_can_change_remote_command_list() {
+  jq '.guard.remoteCommands = [{pattern: "make[[:space:]]+release", why: "배포 스크립트"}]' .harness/project.json > p && mv p .harness/project.json
+  assert_eq "$(pre_bash "supabase db push")" "" "(프로젝트가 목록을 통째로 바꿨다)"
+  assert_eq "$(pre_bash "make release" | jq -r .hookSpecificOutput.permissionDecision)" "ask"
+}
+
+# ── 애드온 ─────────────────────────────────────────────────────────
+test_addons_stack_on_preset_without_dropping_its_lists() {
+  jq '.preset = "nextjs" | .addons = ["supabase", "terraform"] | del(.approval)' .harness/project.json > p && mv p .harness/project.json
+  local ids globs
+  ids="$(h config '.design.baselineChecks' | jq -r 'map(.id) | join(",")')"
+  assert_contains "$ids" "W1,"
+  assert_contains "$ids" "SB1,"
+  assert_contains "$ids" "IF1,"
+  globs="$(h config '.approval.riskGlobs' | jq -r 'join(" ")')"
+  assert_contains "$globs" "*auth*"
+  assert_contains "$globs" "supabase/migrations/*"
+  assert_contains "$globs" "*.tf"
+  assert_eq "$(h config '.build.compileCommand' | jq -r .)" "npx tsc --noEmit" "(애드온은 스택의 값을 바꾸지 않는다)"
+}
+
+test_addons_only_add_to_lists() {
+  local file bad
+  for file in "$ROOT"/presets/addons/*.json; do
+    bad="$(jq -r '[paths(scalars) | select((.[0] | tostring | startswith("_")) | not) | select(any(.[]; type == "number") | not)
+                   | map(tostring) | join(".")] | join(", ")' "$file")"
+    [[ -z "$bad" ]] || fail "$(basename "$file") 가 목록이 아닌 값을 바꾼다: $bad (스택의 값을 덮는다)"
+    jq -e '(.design.baselineChecks // []) | all(.[]; .id | test("^[A-Z]{1,3}[0-9]+$"))' "$file" >/dev/null || fail "$(basename "$file") 점검 항목 ID 형식"
+  done
+}
+
+test_unknown_addon_stops_config() {
+  jq '.addons = ["nope"]' .harness/project.json > p && mv p .harness/project.json
+  assert_exit "$(grep -o 'EXIT_CONFIG=[0-9]*' "$ROOT/lib/common.sh" | cut -d= -f2)" h config
+}
+
+test_init_detects_addons() {
+  mkdir -p supabase infra
+  touch supabase/config.toml
+  echo 'resource "null_resource" "x" {}' > infra/main.tf
+  rm -f .harness/project.json
+  h init --no-git-hooks --no-plugin >/dev/null 2>&1
+  assert_eq "$(jq -c .addons .harness/project.json)" '["supabase","terraform"]'
+  rm -f .harness/project.json
+  h init --no-git-hooks --no-plugin --addons "" >/dev/null 2>&1
+  assert_eq "$(jq -c .addons .harness/project.json)" '[]' "(빈 값이면 쓰지 않는다)"
+  rm -f .harness/project.json
+  assert_exit 2 h init --no-git-hooks --no-plugin --addons nope
+}
+
+test_supabase_service_role_in_public_env_blocks() {
+  jq '.addons = ["supabase"]' .harness/project.json > p && mv p .harness/project.json
+  echo 'const key = process.env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY;' > src/client.js
+  assert_exit 1 h check src/client.js
+  echo 'const key = process.env.SUPABASE_SERVICE_ROLE_KEY;' > src/server.js
+  assert_exit 0 h check src/server.js
+}
 
 test_hook_pre_edit_denies_ledger() {
   local out

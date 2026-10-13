@@ -119,5 +119,58 @@
     "log": "",
     "teardown": [],
     "maxScreens": 6
+  },
+  "guard": {
+    "_about": "클라우드 · 운영 DB · 배포를 바꾸는 셸 명령. 에이전트가 실행하려 하면 훅이 사람에게 묻는다(사람이 없는 실행에서는 막힌다). 되돌리기 어렵고 돈이 들기 때문이다(C2). pattern 은 명령 이름부터 쓰는 ERE. 프로젝트는 project.json 에서 배열을 통째로 다시 적어 바꾼다.",
+    "remoteCommands": [
+      {
+        "pattern": "(terraform|tofu)[[:space:]]+(apply|destroy|import|state[[:space:]]+(rm|mv|push)|force-unlock)",
+        "why": "Terraform 이 실제 인프라나 상태를 바꾼다"
+      },
+      {
+        "pattern": "supabase[[:space:]]+(db[[:space:]]+(push|reset[[:space:]]([^;&|]*[[:space:]])?--linked)|migration[[:space:]]+(repair|squash[[:space:]]([^;&|]*[[:space:]])?--linked)|functions[[:space:]]+(deploy|delete)|secrets[[:space:]]+(set|unset)|projects[[:space:]]+(create|delete)|storage[[:space:]]+(rm|cp|mv))",
+        "why": "Supabase 원격 프로젝트(운영 DB · 함수 · 비밀 · 스토리지)를 바꾼다"
+      },
+      {
+        "pattern": "oci[[:space:]]([^;&|]*[[:space:]])?(create|delete|update|terminate|launch|action|put|remove|patch|change-compartment)([[:space:]]|$)",
+        "why": "Oracle Cloud 자원을 만들거나 바꾸거나 지운다"
+      },
+      {
+        "pattern": "aws[[:space:]]([^;&|]*[[:space:]])?((create|delete|put|update|terminate|modify|attach|detach|run)-[a-z0-9-]+|deploy|rm|sync|cp|mv)([[:space:]]|$)",
+        "why": "AWS 자원이나 저장소를 바꾼다"
+      },
+      {
+        "pattern": "gcloud[[:space:]]([^;&|]*[[:space:]])?(create|delete|update|deploy|set-iam-policy|add-iam-policy-binding|remove-iam-policy-binding)([[:space:]]|$)",
+        "why": "Google Cloud 자원을 바꾼다"
+      },
+      {
+        "pattern": "az[[:space:]]([^;&|]*[[:space:]])?(create|delete|update|deploy|set|start|stop|restart)([[:space:]]|$)",
+        "why": "Azure 자원을 바꾼다"
+      },
+      {
+        "pattern": "kubectl[[:space:]]([^;&|]*[[:space:]])?(apply|create|delete|patch|replace|scale|rollout|edit|set|drain|cordon)([[:space:]]|$)",
+        "why": "쿠버네티스 클러스터를 바꾼다"
+      },
+      {
+        "pattern": "helm[[:space:]]+(install|upgrade|uninstall|rollback|delete)([[:space:]]|$)",
+        "why": "쿠버네티스에 배포하거나 되돌린다"
+      },
+      {
+        "pattern": "(vercel[[:space:]]([^;&|]*[[:space:]])?--prod|vercel[[:space:]]+(env[[:space:]]+(add|rm)|promote|rollback|remove|rm)([[:space:]]|$))",
+        "why": "Vercel 운영 배포나 환경 변수를 바꾼다"
+      },
+      {
+        "pattern": "firebase[[:space:]]+deploy([[:space:]]|$)",
+        "why": "Firebase 에 배포한다"
+      },
+      {
+        "pattern": "fly(ctl)?[[:space:]]+(deploy|destroy|scale|secrets[[:space:]]+(set|unset)|apps[[:space:]]+(create|destroy))([[:space:]]|$)",
+        "why": "Fly.io 앱을 배포하거나 바꾼다"
+      },
+      {
+        "pattern": "wrangler[[:space:]]+(deploy|publish|delete|secret[[:space:]]+(put|delete))([[:space:]]|$)",
+        "why": "Cloudflare Workers 에 배포하거나 비밀을 바꾼다"
+      }
+    ]
   }
 }
