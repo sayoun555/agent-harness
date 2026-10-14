@@ -15,6 +15,9 @@
 #
 
 readonly IMPLEMENT_MODES="sequential|isolated|shared"
+# 검증자: standalone 은 대조표를 스스로 제출한다(스킬 · 사람). loop 는 대조표를 반환만 하고 루프가 제출한다.
+#   검증자는 자기가 루프 안에 있는지 알 수 없다. 부르는 쪽이 정해 준다 — 두 번 제출되지 않게.
+readonly REVIEW_MODES="standalone|loop"
 
 # ── 구현자 ──────────────────────────────────────────────────────────
 #   sequential  기본. 작업 트리에서 혼자 구현한다
@@ -134,26 +137,37 @@ emit_implement_prompt() {
 }
 
 # ── 검증자 ──────────────────────────────────────────────────────────
-review_prompt_header() {  # review_prompt_header <id>
-  one_shot_notice "$1" "검증"
-  criteria_change_notice "$1"
-  cat <<HEADER
-너는 기능 $1 을 구현하지 않은 독립 검증자다. 파일을 고치거나 커밋하지 않는다.
-아래 프로토콜·기준·대조표 항목·변경을 읽고, 바뀐 파일은 직접 열어 확인한 뒤 대조표를 낸다.
-루프 밖에서 혼자 실행할 때는 대조표 JSON 을 .harness/verdicts/$1.json 에 저장해 제출한다
+review_submit_rule() {  # review_submit_rule <id> <mode>
+  if [[ "$2" == loop ]]; then
+    printf '대조표는 결과로 반환만 한다. 제출은 루프가 한다 — feature review 를 직접 실행하지 않는다(두 번 제출된다).\n'
+    return
+  fi
+  cat <<SUBMIT
+대조표 JSON 을 .harness/verdicts/$1.json 에 저장해 제출한다
 (작업 트리의 다른 곳에 파일을 만들면 "게이트 후 변경됨" 으로 반려된다):
   .harness/bin/harness feature review $1 --verdict-file .harness/verdicts/$1.json
-
-HEADER
+SUBMIT
 }
 
-review_prompt() {  # review_prompt <id>
-  review_prompt_header "$1"
+review_prompt_header() {  # review_prompt_header <id> <mode>
+  one_shot_notice "$1" "검증"
+  criteria_change_notice "$1"
+  printf '너는 기능 %s 을 구현하지 않은 독립 검증자다. 파일을 고치거나 커밋하지 않는다.\n' "$1"
+  printf '아래 프로토콜·기준·대조표 항목·변경을 읽고, 바뀐 파일은 직접 열어 확인한 뒤 대조표를 낸다.\n'
+  review_submit_rule "$1" "$2"
+  printf '\n'
+}
+
+review_prompt() {  # review_prompt <id> <mode>
+  review_prompt_header "$1" "$2"
   bash "$HARNESS_HOME/commands/review.sh" --context "$1"
 }
 
-emit_review_prompt() {  # emit_review_prompt <id> [--json]
-  local id="$1" prompt; shift
-  prompt="$(review_prompt "$id")"
+emit_review_prompt() {  # emit_review_prompt <id> [--mode standalone|loop] [--json]
+  local id="$1" mode prompt; shift
+  mode="$(flag_value --mode "$@")"
+  mode="${mode:-standalone}"
+  [[ "$mode" =~ ^($REVIEW_MODES)$ ]] || die "$EXIT_USAGE" "--mode 는 standalone · loop"
+  prompt="$(review_prompt "$id" "$mode")"
   emit "$(json_mode_of "$@")" "$(jq -cn --arg id "$id" --arg p "$prompt" '{id: $id, prompt: $p}')" "$prompt"
 }

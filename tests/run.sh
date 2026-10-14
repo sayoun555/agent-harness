@@ -1506,6 +1506,54 @@ test_json_mode_reports_refusal_on_stdout() {
   assert_eq "$(h feature verify a 2>/dev/null)" "" "(--json 이 없으면 stdout 은 비어 있다)"
 }
 
+# 다시 열린 기능의 코드는 이미 기준에 들어 있을 수 있다 → 변경 없이 다시 검증해도 기록한다
+test_reopened_feature_records_reverification_without_new_change() {
+  use_ledger_mode
+  add_feature b "비" 'true'
+  add_feature c "씨" 'true'
+  h feature preflight >/dev/null 2>&1
+  h prompt implement b >/dev/null; echo 'b' > src/b.js
+  pass_feature b
+  echo '// 손질' >> src/b.js          # 손 수정 → b 가 다시 열린다
+  h feature preflight >/dev/null 2>&1
+  assert_eq "$(status_of b)" "pending"
+  h prompt implement c >/dev/null; echo 'c' > src/c.js
+  pass_feature c                      # 범위 없이 기록 → 기준선에 손 수정까지 들어간다
+  h prompt implement b >/dev/null     # 다시 구현했지만 바꿀 것이 없다
+  verify_and_review b
+  assert_exit 0 h feature record b
+  assert_eq "$(status_of b)" "passing"
+  assert_contains "$(h feature drift)" "검증 후 바뀐 기능 없음" "(앞서 검증한 파일을 지금 내용으로 다시 남겼다)"
+}
+
+test_never_recorded_feature_still_refuses_empty_change() {
+  use_ledger_mode
+  add_feature a "에이" 'true'
+  h feature preflight >/dev/null 2>&1
+  verify_and_review a
+  assert_exit 1 h feature record a
+  assert_eq "$(field_of a lastFailure)" "기록할 변경이 없다 — 변경이 다른 기능에 보관됐거나 되돌려졌다"
+}
+
+test_review_prompt_in_loop_mode_leaves_submission_to_loop() {
+  add_feature a "에이" 'true'
+  assert_contains "$(h prompt review a)" "feature review a --verdict-file"
+  local loop
+  loop="$(h prompt review a --mode loop)"
+  assert_contains "$loop" "제출은 루프가 한다"
+  [[ "$loop" != *"--verdict-file"* ]] || fail "루프 모드인데 직접 제출하라고 한다"
+  assert_exit 2 h prompt review a --mode nope
+}
+
+test_ledger_reads_can_pick_fields() {
+  add_feature a "에이" 'true'
+  add_feature b "비" 'true'
+  assert_eq "$(h feature list --json --fields id,status)" '[{"id":"a","status":"pending"},{"id":"b","status":"pending"}]'
+  assert_eq "$(h feature next --json --fields id,attempts)" '{"id":"a","attempts":0}'
+  assert_eq "$(h feature next --json --limit 2 --fields id)" '[{"id":"a"},{"id":"b"}]'
+  assert_exit 2 h feature list --json --fields 'id,.status'
+}
+
 test_review_prompt_survives_diff_larger_than_limit() {
   jq '.review.maxDiffLines = 5' .harness/project.json > p && mv p .harness/project.json
   add_feature a "에이" 'true'

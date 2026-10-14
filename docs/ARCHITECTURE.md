@@ -24,7 +24,7 @@ design check 를 통과하지 못한 설계는 원장에 들어가지 않는다.
 | 선택 | 결정론 | `feature next --json` |
 | 구현 | LLM (시도마다 새 에이전트, 재사용하지 않음) | 에이전트가 `prompt implement ID` 를 직접 실행해 표준 프롬프트를 받는다 |
 | 게이트 | 결정론 | `feature verify ID` = compile → test-guard → acceptance → (켜져 있으면) 실행 렌즈 `run ID`. 빌드는 빌드 잠금 안에서 |
-| 검증 | LLM (구현하지 않은 독립 검증자, 검증마다 새 에이전트) | `prompt review ID` 를 받아 대조표를 낸다 → `feature review ID --verdict-json` 으로 하네스가 판정 |
+| 검증 | LLM (구현하지 않은 독립 검증자, 검증마다 새 에이전트) | `prompt review ID` 를 받아 대조표를 낸다 → `feature review ID --verdict-json` 으로 하네스가 판정. 루프는 `--mode loop` 로 불러 검증자가 직접 제출하지 않게 한다 |
 | 기록 | 결정론 | `feature record ID` (reviewed 에서만) |
 
 표준 프롬프트 머리에 "기능 · 시도 N · 구현|검증 전용 — 이 지시 하나만 처리하고 끝낸다" 가 찍힌다. Agent 도구의 재사용은 하네스가 막을 수 없어서, 프롬프트와 스킬 규칙으로 막는다.
@@ -118,6 +118,7 @@ defaults → 프리셋(스택 하나) → 애드온(서비스 · 인프라, 여�
 한 파일은 한 기능의 범위에만 있다. 이미 다른 기능의 범위인 파일은 claim 이 거부한다. 같은 트리 병렬 루프는 게이트 전에 바퀴 안의 모든 기능의 범위를 먼저 적는다. 하나씩 적으면 앞 기능이 기록되며 범위가 풀려, 겹친 파일을 놓친다.
 
 게이트가 본 변경 = 검토한 변경 = 기록할 변경이어야 한다. verify 통과 때 `verifiedChange`, 검토 승인 때 `reviewedChange` 에 범위 안 diff 의 해시를 남긴다. review 와 record 가 다시 재서 다르면 pending 으로 되돌린다. 기록할 변경이 비어 있어도 되돌린다.
+다만 한 번 기록된 기능이 drift · audit 로 다시 열렸으면 그 코드는 이미 기준에 있어 변경이 비는 것이 정상이다. 이때는 지금 코드를 다시 게이트 · 검토한 것을 기록하고, 앞서 검증한 파일을 지금 내용으로 다시 남긴다.
 
 ## 보관
 

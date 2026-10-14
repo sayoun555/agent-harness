@@ -66,8 +66,20 @@ changed_since() {
   return 0
 }
 
+# 한 번 기록된 기능(verifiedFiles 가 있다)이 drift · audit 로 다시 열렸으면, 그 코드는 이미 기준에 들어 있다.
+# 그래서 다시 검증할 때 변경이 없는 것이 정상이다 — 지금 코드를 다시 게이트·검토한 것을 기록한다.
+# 다시 구현한 변경이 남에게 휩쓸려 사라진 경우는 검토 때 해시(reviewedChange)와 달라져서 따로 걸린다.
+was_recorded() {  # was_recorded <id>
+  jq -e --arg id "$1" '.features[] | select(.id == $id) | (.verifiedFiles // null) | type == "object"' \
+    "$(features_file)" >/dev/null
+}
+
+previously_verified_paths() {  # previously_verified_paths <id> → 앞서 기록할 때 검증한 파일
+  jq -r --arg id "$1" '.features[] | select(.id == $id) | (.verifiedFiles // {}) | keys[]' "$(features_file)"
+}
+
 unrecordable_reason() {  # unrecordable_reason <id> → 기록하면 안 되는 이유 (없으면 빈 출력)
-  if [[ "$(change_fingerprint "$1")" == "$NO_CHANGE_FINGERPRINT" ]]; then
+  if [[ "$(change_fingerprint "$1")" == "$NO_CHANGE_FINGERPRINT" ]] && ! was_recorded "$1"; then
     echo "기록할 변경이 없다 — 변경이 다른 기능에 보관됐거나 되돌려졌다"
     return 0
   fi
@@ -110,10 +122,13 @@ touched_paths() {
 
 # record_passing <id> <suffix> <status-on-failure> → 실패하면 원장을 되돌리고 1 (RECORD_ERROR)
 #   통과 표시와 검증한 파일의 해시(drift)를 커밋 전에 원장에 함께 쓴다. 커밋에 원장이 같이 담긴다.
+#   다시 열렸던 기능이면 앞서 검증한 파일도 지금 내용으로 다시 남긴다 — 이번 게이트·검토가 지금 내용을 봤다.
 record_passing() {
   local id="$1" suffix="$2" rollback_status="$3" ledger_before path touched=()
   scope_of "$id"   # 범위는 원장을 바꾸기 전에 읽는다 (기준선을 이 기능의 경로만 갱신하려고)
-  while IFS= read -r path; do [[ -n "$path" ]] && touched+=("$path"); done < <(touched_paths)
+  while IFS= read -r path; do
+    [[ -n "$path" ]] && touched+=("$path")
+  done < <({ touched_paths; previously_verified_paths "$id"; } | awk '!seen[$0]++')
   ledger_before="$(cat "$(features_file)")"
   set_feature_fields "$id" "$(jq -cn --arg at "$(utc_now)" '{status: "passing", passedAt: $at, scope: null, implementedUnder: null}')"
   remember_verified_files "$id" ${touched[@]+"${touched[@]}"}

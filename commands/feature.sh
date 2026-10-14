@@ -2,7 +2,7 @@
 #
 # harness feature — 기능 원장. 루프의 상태와 종료 조건이 여기 있다.
 #
-#   조회     list [--json] · next [--json] [--limit N] · status [--json]
+#   조회     list [--json] · next [--json] [--limit N] · status [--json]   (--json 에 --fields a,b 면 그 필드만)
 #            brief ID [--mode M] [--json]                           harness prompt implement 와 같다
 #   준비     add --id ID --desc 설명 --acceptance 명령 [--design 문서] [--decisions-json JSON]
 #            claim ID --files 경로,경로                            같은 트리에서 기능이 맡은 파일 (범위에 더한다)

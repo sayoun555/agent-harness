@@ -40,6 +40,7 @@ async function runRecovery() {
     }
     const keys = schemaKeys(opts)
     if (keys.includes('exitCode')) {
+      if (/feature (list|next) --json/.test(prompt)) assert.match(prompt, /--fields /, '원장은 필요한 필드만 읽는다')
       const result = runCommandNode(elsewhere, prompt)
       if (/feature review r /.test(prompt)) return { exitCode: result.exitCode, stdout: '' }   // 실행은 됐는데 응답을 잃었다
       return result
@@ -51,7 +52,11 @@ async function runRecovery() {
       writeFileSync(join(project, `src/${id}.js`), `export const ${id} = 1;\n`)
       return { needsDecision: false, question: '', summary: id, filesChanged: [`src/${id}.js`] }
     }
-    if (keys.includes('checks')) return checklistVerdict(followBootstrap(elsewhere, prompt))
+    if (keys.includes('checks')) {
+      const review = followBootstrap(elsewhere, prompt)
+      assert.ok(!review.includes('--verdict-file'), '루프 안의 검증자는 직접 제출하지 않는다')
+      return checklistVerdict(review)
+    }
     throw new Error(`알 수 없는 agent 호출: ${opts.label}`)
   }
 

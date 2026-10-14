@@ -37,6 +37,10 @@ const HARNESS = PROJECT_ROOT ? `cd ${shellQuote(PROJECT_ROOT)} && .harness/bin/h
 const MAX_ITERATIONS = (args && args.maxIterations) || 20
 const BUDGET_FLOOR = 50000
 
+// 원장은 필요한 필드만 읽는다. 전체에는 실패 출력 · 대조표가 실려 커지고, 명령 실행 에이전트가 옮기는 동안 걸러질 수 있다.
+const SELECT_FIELDS = 'id,attempts,figma'                 // 선택: 태그 · 시도 횟수 · 구현자 종류
+const SUMMARY_FIELDS = 'id,status,lastFailure,question'   // 끝 요약
+
 // ── 스키마 ─────────────────────────────────────────────────────────
 const COMMAND_RESULT = {
   type: 'object',
@@ -153,7 +157,7 @@ async function runHarness(command, label) {
 function lostReply(reply) { return !reply || reply.result === 'error' }
 
 async function ledgerStatus(feature) {
-  const ledger = await runHarness('feature list --json', `원장:${feature.id}`)
+  const ledger = await runHarness('feature list --json --fields id,status', `원장:${feature.id}`)
   const found = Array.isArray(ledger) ? ledger.find((f) => f.id === feature.id) : null
   return found ? found.status : null
 }
@@ -186,7 +190,7 @@ function reviewPrompt(feature) {
   return [
     `너는 기능 ${feature.id} 을 구현하지 않은 독립 검증자다.`,
     WHERE,
-    `먼저 \`${HARNESS} prompt review ${feature.id}\` 를 실행하고, 출력된 프로토콜대로 대조표를 낸다.`,
+    `먼저 \`${HARNESS} prompt review ${feature.id} --mode loop\` 를 실행하고, 출력된 프로토콜대로 대조표를 낸다.`,
     runtime,
   ].filter(Boolean).join('\n')
 }
@@ -334,12 +338,12 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS && !stuck; iteration++) {
   // 선택 응답을 잃었거나 거부됐으면 할 일이 없는 것이 아니다 — 원장을 읽지 못한 것이다. 완료로 끝내지 않고 멈춘다.
   let outcomes
   if (PARALLEL > 1) {
-    const batch = await runHarness(`feature next --json --limit ${PARALLEL}`, `선택#${iteration}`)
+    const batch = await runHarness(`feature next --json --limit ${PARALLEL} --fields ${SELECT_FIELDS}`, `선택#${iteration}`)
     if (!Array.isArray(batch)) { stopReason = 'ledger-unreadable'; break }
     if (batch.length === 0) { stopReason = 'all-done'; break }
     outcomes = await runParallel(batch, iteration, AUTO_COMMIT)
   } else {
-    const feature = await runHarness('feature next --json', `선택#${iteration}`)
+    const feature = await runHarness(`feature next --json --fields ${SELECT_FIELDS}`, `선택#${iteration}`)
     if (lostReply(feature)) { stopReason = 'ledger-unreadable'; break }
     if (!feature.id) { stopReason = 'all-done'; break }
     outcomes = [await runSequential(feature, iteration, AUTO_COMMIT)]
@@ -361,7 +365,7 @@ if (stopReason === 'max-iterations') log(`최대 ${MAX_ITERATIONS}바퀴에 도�
 currentPhase = 'Audit'
 phase('Audit')
 const audit = await runHarness('feature audit --json', 'audit')
-const ledger = await runHarness('feature list --json', '원장')
+const ledger = await runHarness(`feature list --json --fields ${SUMMARY_FIELDS}`, '원장')
 const features = Array.isArray(ledger) ? ledger : []
 const byStatus = (status) => features
   .filter((f) => f.status === status)
