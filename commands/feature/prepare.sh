@@ -33,6 +33,9 @@ cmd_add() {
 # 게이트·검증·기록·보관이 이 범위만 본다.
 # 한 파일은 한 기능의 범위에만 있다. 이미 다른 기능의 범위인 파일이면 맡지 않는다 —
 # 같은 파일에 섞인 두 기능의 변경은 가를 수 없다. 그 기능은 앞 기능이 기록된 뒤 다시 구현한다.
+# 다시 claim 하면 범위에 더한다. 앞 시도의 변경도 트리에 남아 있기 때문이다.
+# verified · reviewed 에서도 claim 할 수 있다(범위 없이 판정을 받았는데 다른 기능 때문에 기록이 막혔을 때).
+# 범위가 바뀌면 게이트가 본 변경이 아니므로 pending 으로 돌려 게이트부터 다시 한다.
 claimed_by_others() {  # claimed_by_others <id> <파일 JSON 배열> → "경로(기능)" 쉼표로
   jq -r --arg id "$1" --argjson files "$2" '
     [.features[] | select(.id != $id and .scope != null) as $f
@@ -41,11 +44,11 @@ claimed_by_others() {  # claimed_by_others <id> <파일 JSON 배열> → "경로
 
 cmd_claim() {
   local id="${1:-}"; shift || true
-  local files files_json taken json_mode
+  local files files_json taken json_mode scope_json status
   files="$(flag_value --files "$@")"
   [[ -n "$id" && -n "$files" ]] || die "$EXIT_USAGE" "사용: feature claim ID --files 경로,경로"
   require_features_file; require_feature "$id"
-  require_status "$id" "$STATUS_PENDING"
+  require_status "$id" "$STATUS_PENDING" "$STATUS_VERIFIED" "$STATUS_REVIEWED"
   json_mode="$(json_mode_of "$@")"
   files_json="$(split_commas "$files" | lines_to_json)"
   taken="$(claimed_by_others "$id" "$files_json")"
@@ -55,8 +58,16 @@ cmd_claim() {
       "⛔ claim $id: 다른 기능의 범위와 겹친다 — $taken (같은 파일을 고치는 기능은 순차로)"
     return "$EXIT_GATE_FAILED"
   fi
-  set_feature_fields "$id" "$(jq -c '{scope: .}' <<<"$files_json")"
-  emit "$json_mode" "$(result_json "$id" claimed "범위 $(jq length <<<"$files_json")개 파일")" "📌 claim $id: $files"
+  scope_json="$(jq -c --arg id "$id" --argjson files "$files_json" \
+    '.features[] | select(.id == $id) | (.scope // []) + $files | unique' "$(features_file)")"
+  status="$(feature_field "$id" status)"
+  if [[ "$status" != "$STATUS_PENDING" && "$scope_json" != "$(feature_scope "$id" | lines_to_json | jq -c 'unique')" ]]; then
+    set_feature_fields "$id" "$(jq -cn --argjson s "$scope_json" --arg was "$status" \
+      '{scope: $s, status: "pending", lastFailure: ("범위 지정 — " + $was + " 때 본 변경과 범위가 달라 게이트부터 다시"), lastFailureDetail: ""}')"
+  else
+    set_feature_fields "$id" "$(jq -cn --argjson s "$scope_json" '{scope: $s}')"
+  fi
+  emit "$json_mode" "$(result_json "$id" claimed "범위 $(jq length <<<"$scope_json")개 파일")" "📌 claim $id: $(jq -r 'join(",")' <<<"$scope_json") → $(feature_field "$id" status)"
 }
 
 # ── 루프 사전 점검 ───────────────────────────────────────────────────

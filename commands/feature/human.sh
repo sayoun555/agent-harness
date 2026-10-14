@@ -32,15 +32,19 @@ cmd_decide() {
   echo "✅ decide $id → pending (결정이 다음 구현에 전달된다)"
 }
 
-# 막힘·승인 대기·판단 대기를 다시 대기열로. 보관한 이전 시도는 참고용으로 남긴다.
+# 통과하지 않은 기능을 대기열 처음으로: 시도 횟수 · 범위 · 진행 중 표시를 지운다. 작업 트리는 건드리지 않는다.
+#   막힘 · 승인 대기 · 판단 대기의 변경은 이미 보관돼 있다(참고용으로 남긴다).
+#   pending · verified · reviewed 의 변경은 트리에 그대로 남고, 다음 구현이 이어서 쓴다.
+#   진행 중이 아니게 되므로 소유권 판정(lib/record.sh)에서 빠진다 — 다른 기능을 막고 있던 기능을 풀 때 쓴다.
 cmd_reset() {
   local id="${1:-}"
   [[ -n "$id" ]] || die "$EXIT_USAGE" "사용: feature reset ID"
   require_features_file; require_feature "$id"
-  require_status "$id" "$STATUS_BLOCKED" "$STATUS_AWAITING" "$STATUS_NEEDS_DECISION"
+  require_status "$id" "$STATUS_BLOCKED" "$STATUS_AWAITING" "$STATUS_NEEDS_DECISION" \
+    "$STATUS_PENDING" "$STATUS_VERIFIED" "$STATUS_REVIEWED"
   local ref
   ref="$(parked_ref "$id")"
-  set_feature_fields "$id" '{"status":"pending","attempts":0,"repeats":0,"lastFailure":"","lastFailureDetail":"","lastFailureFingerprint":"","scope":null}'
+  set_feature_fields "$id" '{"status":"pending","attempts":0,"repeats":0,"lastFailure":"","lastFailureDetail":"","lastFailureFingerprint":"","scope":null,"implementedUnder":null}'
   trace_add reset "$(jq -cn --arg id "$id" '{feature: $id}')"
   echo "🔄 reset $id → pending ($(base_label) 에서 다시 구현한다)"
   [[ -n "$ref" ]] && echo "   이전 시도는 $ref 에 남아 있다."

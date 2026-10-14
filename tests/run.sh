@@ -1403,6 +1403,109 @@ test_record_refuses_when_changed_after_review() {
   assert_eq "$(field_of sub lastFailure)" "검토 후 변경됨 — 검토 때 본 변경과 지금 트리가 다르다"
 }
 
+# ── 진행 중인 기능과 drift · 소유권 (현장 보고: 통과 기능이 다시 열려 교착) ──
+# b 를 통과시킨 뒤 a 가 구현을 시작해 b 의 파일(src/math.js)을 고친다 (기록 전)
+pass_b_then_start_a_on_its_file() {
+  use_ledger_mode
+  add_feature b "비" 'grep -q "const b" src/math.js'
+  add_feature a "에이" 'grep -q "const a" src/math.js'
+  h feature preflight >/dev/null 2>&1
+  h prompt implement b >/dev/null; echo 'export const b = 1;' >> src/math.js
+  pass_feature b
+  h prompt implement a >/dev/null; echo 'export const a = 1;' >> src/math.js
+}
+
+test_drift_waits_for_in_flight_feature() {
+  pass_b_then_start_a_on_its_file
+  h feature preflight >/dev/null 2>&1
+  assert_eq "$(status_of b)" "passing" "(a 가 아직 검증 중인 변경이다)"
+  assert_contains "$(h feature drift)" "검증 후 바뀐 기능 없음"
+  pass_feature a
+  assert_eq "$(status_of a)" "passing"
+  assert_contains "$(h feature drift)" "검증 후 바뀐 기능 없음" "(a 를 기록하며 b 의 해시를 맞췄다)"
+  assert_eq "$(field_of b implementedUnder)" "null" "(기록하면 진행 중 표시를 지운다)"
+}
+
+test_drift_skips_only_files_claimed_by_in_flight_feature() {
+  use_ledger_mode
+  add_feature b "비" 'true'
+  add_feature a "에이" 'true'
+  h feature preflight >/dev/null 2>&1
+  echo 'b' > src/b.js; echo '// b' >> src/math.js
+  pass_feature b
+  h prompt implement a >/dev/null; echo '// a' >> src/math.js
+  h feature claim a --files src/math.js >/dev/null
+  echo '// 손질' >> src/b.js   # 어떤 기능도 맡지 않은 변경
+  assert_contains "$(h feature drift)" "- b: src/b.js"
+  [[ "$(h feature drift)" != *"src/math.js"* ]] || fail "a 가 맡은 파일을 drift 로 봤다"
+}
+
+test_drift_reopen_clears_implementation_mark() {
+  pass_b_then_start_a_on_its_file
+  h feature reset a >/dev/null   # a 를 진행 중에서 뺀다 → a 의 변경은 누구도 맡지 않은 변경
+  h feature preflight >/dev/null 2>&1
+  assert_eq "$(status_of b)" "pending"
+  assert_eq "$(field_of b implementedUnder)" "null" "(다시 연 기능은 진행 중이 아니다)"
+  h prompt implement a >/dev/null
+  assert_exit 0 h feature verify a   # 다시 연 b 가 a 를 막지 않는다
+}
+
+test_reviewed_feature_claims_scope_to_get_unstuck() {
+  use_ledger_mode
+  add_feature a "에이" 'true'
+  add_feature c "씨" 'true'
+  h feature preflight >/dev/null 2>&1
+  h prompt implement a >/dev/null; echo 'a' > src/a.js
+  verify_and_review a
+  h prompt implement c >/dev/null; echo 'c' > src/c.js
+  assert_exit 2 h feature record a
+  assert_eq "$(h feature claim a --files src/a.js --json | jq -r .status)" "pending" "(범위가 바뀌어 게이트부터 다시)"
+  assert_eq "$(field_of a lastFailure)" "범위 지정 — reviewed 때 본 변경과 범위가 달라 게이트부터 다시"
+  verify_and_review a
+  assert_exit 0 h feature record a
+  assert_eq "$(status_of a)" "passing"
+  assert_eq "$(ls src | tr '\n' ' ')" "a.js c.js math.js " "(c 의 변경은 그대로)"
+}
+
+test_claim_adds_to_existing_scope() {
+  use_ledger_mode
+  add_feature a "에이" 'true'
+  h feature claim a --files src/a.js >/dev/null
+  h feature claim a --files src/a2.js,src/a.js >/dev/null
+  assert_eq "$(jq -c '.features[0].scope' .harness/features.json)" '["src/a.js","src/a2.js"]'
+}
+
+test_reset_releases_in_flight_feature_without_touching_tree() {
+  use_ledger_mode
+  add_feature a "에이" 'true'
+  add_feature c "씨" 'true'
+  h feature preflight >/dev/null 2>&1
+  h prompt implement a >/dev/null; echo 'a' > src/a.js
+  verify_and_review a
+  h prompt implement c >/dev/null   # c 가 구현을 시작했다가 끊겼다 (변경 없음)
+  assert_exit 2 h feature record a
+  assert_exit 0 h feature reset c
+  assert_eq "$(field_of c implementedUnder)" "null"
+  assert_exit 0 h feature record a
+  assert_eq "$(ls src | tr '\n' ' ')" "a.js math.js "
+  assert_exit 2 h feature reset a   # 통과한 기능은 reset 하지 않는다
+}
+
+test_json_mode_reports_refusal_on_stdout() {
+  use_ledger_mode
+  add_feature a "에이" 'true'
+  add_feature c "씨" 'true'
+  h feature preflight >/dev/null 2>&1
+  h prompt implement a >/dev/null; h prompt implement c >/dev/null
+  local out
+  out="$(h feature verify a --json 2>/dev/null)"
+  assert_eq "$(jq -r .result <<<"$out")" "error"
+  assert_eq "$(jq -r .exitCode <<<"$out")" "2"
+  assert_contains "$(jq -r .reason <<<"$out")" "범위 미지정"
+  assert_eq "$(h feature verify nope --json 2>/dev/null | jq -r .result)" "error"
+  assert_eq "$(h feature verify a 2>/dev/null)" "" "(--json 이 없으면 stdout 은 비어 있다)"
+}
+
 test_review_prompt_survives_diff_larger_than_limit() {
   jq '.review.maxDiffLines = 5' .harness/project.json > p && mv p .harness/project.json
   add_feature a "에이" 'true'

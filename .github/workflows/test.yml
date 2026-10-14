@@ -22,3 +22,5 @@ jobs:
         run: node tests/workflow-sim-parallel.mjs
       - name: 커밋 없는 운용 시뮬레이션
         run: node tests/workflow-sim-ledger.mjs
+      - name: 루프 복구 시뮬레이션
+        run: node tests/workflow-sim-recovery.mjs

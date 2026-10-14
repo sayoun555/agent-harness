@@ -23,6 +23,13 @@ readonly STATUS_NEEDS_DECISION="needs-decision"
 
 features_file() { project_path "$(cfg '.state.featuresFile')"; }
 
+# 진행 중 = 이 작업 트리에 기록 전 변경이 있을 수 있는 기능. jq 정의이고, 소유권(lib/record.sh)과 drift(lib/drift.sh)가 같이 쓴다.
+#   verified · reviewed, 또는 pending 인데 이 트리에서 구현을 시작한 것(구현 프롬프트를 받았고 isolated 가 아님).
+#   기록·보관·reset 되거나 drift 로 다시 열리면 implementedUnder 를 지운다 — 그 뒤로는 진행 중이 아니다.
+readonly JQ_IN_FLIGHT='def in_flight:
+  .status == "verified" or .status == "reviewed"
+  or (.status == "pending" and .implementedUnder != null and .implementedUnder.mode != "isolated");'
+
 require_features_file() {
   local file
   file="$(features_file)"

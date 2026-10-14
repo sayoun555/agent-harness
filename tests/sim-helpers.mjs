@@ -59,9 +59,12 @@ export async function fakeParallel(thunks) {
 
 export const noBudget = { total: null, spent: () => 0, remaining: () => Infinity }
 
+// 워크플로우가 내는 하네스 명령을 이 저장소의 하네스로 바꾼다. args.projectRoot 를 주면 앞에 `cd <루트> &&` 가 붙는다.
+const HARNESS_COMMAND = /^((?:cd '[^']*' && )?)\.harness\/bin\/harness/
+
 // 결정론 노드(harness 명령)는 프롬프트 마지막 줄을 실제로 실행한다
 export function runCommandNode(dir, prompt, env) {
-  const command = prompt.trim().split('\n').pop().replace(/^\.harness\/bin\/harness/, `bash ${HARNESS}`)
+  const command = prompt.trim().split('\n').pop().replace(HARNESS_COMMAND, `$1bash ${HARNESS}`)
   const r = sh(dir, command, env)
   return { exitCode: r.status, stdout: r.stdout }
 }
@@ -76,9 +79,9 @@ export function featureIdOf(prompt) {
 }
 
 export function followBootstrap(dir, prompt) {
-  const command = (prompt.match(/`(\.harness\/bin\/harness prompt [^`]+)`/) || [])[1]
+  const command = (prompt.match(/`((?:cd '[^']*' && )?\.harness\/bin\/harness prompt [^`]+)`/) || [])[1]
   if (!command) throw new Error(`부트스트랩 명령이 없다:\n${prompt}`)
-  return mustRun(dir, command.replace(/^\.harness\/bin\/harness/, `bash ${HARNESS}`))
+  return mustRun(dir, command.replace(HARNESS_COMMAND, `$1bash ${HARNESS}`))
 }
 
 // 검증 프롬프트의 "대조표 항목" 을 전부 채운 대조표. violations: {ID: "파일:줄 — 설명"}

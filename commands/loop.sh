@@ -60,7 +60,8 @@ ready_or_exit() {
 # ── 실행 ────────────────────────────────────────────────────────────
 loop_prompt() {  # loop_prompt <max> <parallel>
   local args
-  args="$(jq -cn --argjson m "$1" --argjson p "$2" --argjson a "$(plugin_agents_json)" '{maxIterations: $m, parallel: $p, agents: $a}')"
+  args="$(jq -cn --argjson m "$1" --argjson p "$2" --argjson a "$(plugin_agents_json)" --arg root "$PROJECT_ROOT" \
+    '{maxIterations: $m, parallel: $p, agents: $a, projectRoot: $root}')"
   cat <<EOF
 하네스 루프를 실행한다. 다른 일은 하지 않는다.
 Workflow 도구를 다음 인자로 한 번 호출한다: { "scriptPath": "$(workflow_copy_path)", "args": $args }

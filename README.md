@@ -232,7 +232,8 @@ GitHub 트리거는 main 에 직접 커밋하지 않고 PR 을 연다. 사람이
 | 같은 실패 반복·시도 한도·커밋 실패로 막힘 | 원인을 보고 "그거 다시 해 줘" | `harness feature reset ID` |
 | 통과했던 기능이 깨졌는지 | "통과한 거 아직 괜찮아?" | `harness feature audit` |
 | 검증 뒤에 손으로 고친 기능 | "검증 끝난 뒤 바뀐 거 있어?" | `harness feature drift` (`--reopen` 이면 다시 대기열로) |
-| "범위 미지정" 으로 멈춤 (같은 트리에 기록 전인 다른 기능) | "하나씩 해 줘" | 기능마다 `harness feature claim ID --files a,b`, 또는 한 기능씩 구현·기록 |
+| "범위 미지정" 으로 멈춤 (같은 트리에 기록 전인 다른 기능) | "하나씩 해 줘" | 멈춘 기능에 `harness feature claim ID --files a,b` (verified · reviewed 에서도 됨), 막고 있는 기능이 끊긴 것이면 `harness feature reset 그ID` |
+| 루프가 `stuck` 으로 멈춤 (같은 결과가 진전 없이 두 번) | "왜 멈췄어?" | 결과의 `stuck.reason` 을 보고 위 방법으로 푼다 |
 
 ## 다른 도구
 

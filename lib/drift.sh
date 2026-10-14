@@ -8,6 +8,10 @@
 # 다른 기능이 같은 파일을 고쳐서 검증을 통과하면, 그 변경은 검증된 것이다.
 # 그래서 기록할 때 앞서 통과한 기능들의 해시도 새 내용으로 맞춘다(absorb). 정당한 후속 변경으로 앞 기능이 다시 열리지 않는다.
 #
+# 진행 중인 기능(JQ_IN_FLIGHT)이 맡은 파일의 변경은 아직 검증 중인 변경이다. drift 로 보지 않는다.
+# 그 기능이 기록되면 absorb 로 해시가 맞춰지고, 보관되면 파일이 기준으로 되돌아간다. 어느 쪽이든 판정은 그때 끝난다.
+# 범위가 없는 진행 중 기능은 트리 전체를 맡는다(lib/record.sh 의 소유권) — 그동안은 drift 판정 전체를 미룬다.
+#
 
 readonly DELETED_MARK="(삭제)"
 
@@ -36,14 +40,25 @@ remember_verified_files() {  # remember_verified_files <id> <경로...>
       else . end)' --arg id "$id" --argjson h "$hashes"
 }
 
-# 통과한 기능 중 파일이 검증 뒤에 바뀐 것: "ID<TAB>경로,경로"
+# 진행 중인 기능이 맡은 파일: 한 줄에 하나. 범위 없는 진행 중 기능이 있으면 "*" 한 줄(트리 전체)
+in_flight_paths() {
+  jq -r "$JQ_IN_FLIGHT"'
+    [.features[] | select(in_flight)] as $f
+    | if any($f[]; (.scope // []) | length == 0) then "*" else ($f | map(.scope[]) | unique[]) end' "$(features_file)"
+}
+
+# 통과한 기능 중 파일이 검증 뒤에 바뀐 것 (진행 중인 기능이 맡은 파일은 뺀다): "ID<TAB>경로,경로"
 drifted_features() {
-  local id stored path changed
+  local id stored path changed held
+  held="$(in_flight_paths)"
+  [[ "$held" == "*" ]] && return 0
   while IFS=$'\t' read -r id stored; do
     [[ -z "$id" ]] && continue
     changed=""
     while IFS=$'\t' read -r path hash; do
-      [[ -n "$path" && "$(file_hash "$path")" != "$hash" ]] && changed="${changed:+$changed,}$path"
+      [[ -n "$path" && "$(file_hash "$path")" != "$hash" ]] || continue
+      grep -qxF -- "$path" <<<"$held" && continue
+      changed="${changed:+$changed,}$path"
     done < <(jq -r 'to_entries[] | "\(.key)\t\(.value)"' <<<"$stored")
     [[ -n "$changed" ]] && printf '%s\t%s\n' "$id" "$changed"
   done < <(jq -r '.features[] | select(.status == "passing" and (.verifiedFiles // null) != null)
@@ -52,12 +67,14 @@ drifted_features() {
 }
 
 # 검증 후 바뀐 기능을 다시 대기열로. 다음 루프가 게이트·검증을 다시 한다.
+#   다시 연 기능은 아직 구현을 시작하지 않은 것이다 — 진행 중 표시(implementedUnder)를 지운다.
 reopen_drifted_features() {  # → 다시 연 기능 "ID<TAB>경로들" 한 줄씩
   local id files
   while IFS=$'\t' read -r id files; do
     [[ -z "$id" ]] && continue
     set_feature_fields "$id" "$(jq -cn --arg f "$files" \
-      '{status: "pending", lastFailure: ("검증 후 변경됨: " + $f), lastFailureDetail: "", lastFailureFingerprint: ""}')"
+      '{status: "pending", implementedUnder: null,
+        lastFailure: ("검증 후 변경됨: " + $f), lastFailureDetail: "", lastFailureFingerprint: ""}')"
     trace_add drift "$(jq -cn --arg id "$id" --arg f "$files" '{feature: $id, result: "reopened", files: $f}')"
     printf '%s\t%s\n' "$id" "$files"
   done < <(drifted_features)

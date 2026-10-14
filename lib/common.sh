@@ -18,9 +18,21 @@ export HARNESS_HOME
 # 사람이 읽는 메시지는 stderr, 기계가 읽는 결과(JSON)는 stdout.
 info() { printf '%s\n' "$*" >&2; }
 
+# --json 으로 부른 명령은 멈출 때도 stdout 에 결과 한 줄을 낸다. 루프는 stdout 의 JSON 만 읽기 때문에,
+# 없으면 "응답 없음" 과 "명령이 거부함" 을 가르지 못한다.
+#   source 한 명령 스크립트의 인자를 여기서 본다(인자 없이 source 하면 호출한 스크립트의 인자가 보인다).
+#   export 하지 않는다 — 그 명령이 안에서 부르는 다른 명령에는 번지지 않는다.
+JSON_ERRORS=0
+for arg in "$@"; do [[ "$arg" == "--json" ]] && JSON_ERRORS=1; done
+unset arg
+
 die() {  # die <exit-code> <message>
   local code="$1"; shift
   printf 'harness: %s\n' "$*" >&2
+  if [[ "$JSON_ERRORS" -eq 1 ]]; then
+    jq -cn --arg reason "$*" --argjson code "$code" '{result: "error", exitCode: $code, reason: $reason}' 2>/dev/null \
+      || printf '{"result":"error","exitCode":%s,"reason":"jq 없음"}\n' "$code"
+  fi
   exit "$code"
 }
 

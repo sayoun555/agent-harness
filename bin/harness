@@ -31,7 +31,7 @@ usage() {
   trace [show|tail N]         루프 실행 기록
   ci                          CI 한 번에: check --all + compile + test
   hook <session|pre-edit|post-edit|stop>   에디터 훅 어댑터 (Claude·Codex)
-  path <home|workflow>        하네스 경로 출력
+  path <home|project|workflow>   하네스 · 프로젝트 루트 · 워크플로우 사본 경로 출력
 EOF
 }
 

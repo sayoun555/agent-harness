@@ -33,14 +33,10 @@ scope_of() {  # scope_of <id> → SCOPE 배열을 채운다
 # 범위(claim)가 없는 기능은 작업 트리 전체를 자기 변경으로 본다. 그래서 이 트리에 변경이 남아 있을 수 있는
 # 다른 기능이 있으면 누구 변경인지 가를 수 없다. 이때 게이트·검증·기록·보관을 하면 남의 변경까지 판정하거나
 # 보관하고 되돌린다. 아무것도 건드리지 않고 멈춘다.
-#   이 트리에 변경이 있을 수 있는 기능 = verified · reviewed, 또는 pending 인데 이 트리에서 구현을 시작한 것
-#   (구현 프롬프트를 받았고 isolated 가 아님). 기록되거나 보관되면 빠진다.
+#   이 트리에 변경이 있을 수 있는 기능 = 진행 중인 기능 (lib/features.sh 의 JQ_IN_FLIGHT).
 unrecorded_others() {  # unrecorded_others <id> → 그런 다른 기능 (쉼표로)
-  jq -r --arg id "$1" '[.features[] | select(.id != $id)
-                        | select(.status == "verified" or .status == "reviewed"
-                                 or (.status == "pending" and .implementedUnder != null
-                                     and .implementedUnder.mode != "isolated"))
-                        | .id] | join(", ")' "$(features_file)"
+  jq -r --arg id "$1" "$JQ_IN_FLIGHT"'
+    [.features[] | select(.id != $id and in_flight) | .id] | join(", ")' "$(features_file)"
 }
 
 require_sole_owner() {  # require_sole_owner <id>
@@ -49,7 +45,7 @@ require_sole_owner() {  # require_sole_owner <id>
   [[ ${#SCOPE[@]} -gt 0 ]] && return 0
   others="$(unrecorded_others "$1")"
   [[ -z "$others" ]] && return 0
-  die "$EXIT_USAGE" "범위 미지정 — 기록 전인 다른 기능($others)의 변경이 같은 트리에 섞여 있을 수 있어 $1 의 변경을 가를 수 없다. 기능마다 feature claim 으로 범위를 나누거나, 한 기능씩 구현·기록한다."
+  die "$EXIT_USAGE" "범위 미지정 — 기록 전인 다른 기능($others)의 변경이 같은 트리에 섞여 있을 수 있어 $1 의 변경을 가를 수 없다. feature claim $1 --files 경로,경로 로 범위를 나누거나(verified·reviewed 에서도 된다), 한 기능씩 구현·기록한다."
 }
 
 # ── 게이트가 본 변경 = 검토한 변경 = 기록할 변경 ─────────────────────
@@ -119,7 +115,7 @@ record_passing() {
   scope_of "$id"   # 범위는 원장을 바꾸기 전에 읽는다 (기준선을 이 기능의 경로만 갱신하려고)
   while IFS= read -r path; do [[ -n "$path" ]] && touched+=("$path"); done < <(touched_paths)
   ledger_before="$(cat "$(features_file)")"
-  set_feature_fields "$id" "$(jq -cn --arg at "$(utc_now)" '{status: "passing", passedAt: $at, scope: null}')"
+  set_feature_fields "$id" "$(jq -cn --arg at "$(utc_now)" '{status: "passing", passedAt: $at, scope: null, implementedUnder: null}')"
   remember_verified_files "$id" ${touched[@]+"${touched[@]}"}
   if auto_commit_enabled; then
     commit_passing "$id" "$suffix" && return 0

@@ -5,7 +5,7 @@
 #   조회     list [--json] · next [--json] [--limit N] · status [--json]
 #            brief ID [--mode M] [--json]                           harness prompt implement 와 같다
 #   준비     add --id ID --desc 설명 --acceptance 명령 [--design 문서] [--decisions-json JSON]
-#            claim ID --files 경로,경로                            같은 트리 병렬에서 기능이 맡은 파일
+#            claim ID --files 경로,경로                            같은 트리에서 기능이 맡은 파일 (범위에 더한다)
 #            preflight [--json]                                    시작 전 점검 (커밋 없이 운용하면 기준선 저장)
 #   판정     verify ID [--json]                                    컴파일 → 테스트 약화 → acceptance (→ 실행 렌즈). 통과면 verified
 #            review ID --verdict-json JSON | --verdict-file 파일     독립 검증자의 대조표. 승인·반려는 하네스가 정한다
@@ -16,7 +16,8 @@
 #   기록     record ID [--json]                                    reviewed → passing (commit 은 같은 명령)
 #            approve ID                                            위험 파일 승인 → passing
 #            adopt ID 브랜치 [--json]                              커밋 운용 병렬: 워크트리 결과 가져오기
-#   사람     ask ID --question 질문 · decide ID --answer 답 · reset ID
+#   사람     ask ID --question 질문 · decide ID --answer 답
+#            reset ID                                              통과 전 기능을 대기열 처음으로 (작업 트리는 그대로)
 #
 #   상태: pending → verified → reviewed → passing
 #         막힘(blocked) · 승인 대기(awaiting-approval) · 판단 대기(needs-decision) 로 떠나는 기능의 변경은

@@ -92,13 +92,19 @@ test -f .harness/project.json && test -x .harness/bin/harness && echo plugged ||
    ```bash
    .harness/bin/harness path workflow
    .harness/bin/harness feature preflight --json | jq -c .agents
+   .harness/bin/harness path project
    ```
-   `Workflow({ scriptPath: "<첫 줄 출력>", args: { maxIterations: 20, agents: <둘째 줄 출력> } })`
+   `Workflow({ scriptPath: "<첫 줄 출력>", args: { maxIterations: 20, agents: <둘째 줄 출력>, projectRoot: "<셋째 줄 출력>" } })`
    agents 를 넘기면 루프의 첫 명령부터 하네스 전용 에이전트를 쓴다(비어 있으면 기본 에이전트).
+   이 세션에 그 정의가 없으면(플러그인이 이 세션에 켜져 있지 않으면) 루프가 기본 에이전트로 바꿔 계속한다.
+   projectRoot 를 넘기면 세션의 작업 디렉터리가 프로젝트 루트가 아니어도 루트에서 명령을 실행한다.
    경로는 프로젝트 안의 사본이다. 원본 경로로 바꾸지 않는다(작업 디렉터리 밖이라 거부된다).
+   세션이 프로젝트 밖(다른 저장소)에서 열려 있으면 Workflow 도구가 이 경로를 거부한다. 그때는 루프 대신 2B 로 진행하거나, 프로젝트에서 세션을 열라고 알린다.
    사용자가 "병렬로" 라고 하면 `args.parallel` 에 동시 구현 수(2~4)를 넣는다.
 3. 끝나면 결과를 요약한다: 통과, 판단 필요(질문 그대로), 승인 대기, 막힘(이유 포함), 남은 기능, MCP 제안.
    판단 필요가 있으면 질문을 먼저 보여 주고 답을 받는다.
+   `stopReason` 이 `stuck` 이면 같은 기능이 진전 없이 같은 결과를 반복한 것이다. `stuck.reason` 을 그대로 보여 준다.
+   "범위 미지정" 이면 6의 "다른 기능 때문에 멈췄을 때" 로 푼다.
 
 ## 2B. 루프 없이 진행 ("루프는 안 써", "하나씩 해 줘")
 
@@ -119,6 +125,10 @@ test -f .harness/project.json && test -x .harness/bin/harness && echo plugged ||
    > 먼저 `.harness/bin/harness prompt implement ID` 를 실행하고, 출력된 지시를 그대로 따른다.
 
    구현자가 판단을 요청하면 `feature ask ID --question '질문'` 으로 남기고 다음 기능으로 간다.
+   커밋 없이 운용하면(`loop.autoCommit: false`) 구현자가 보고한 바꾼 파일을 그 기능의 범위로 적는다. 루프도 같은 일을 한다.
+   ```bash
+   .harness/bin/harness feature claim ID --files a,b
+   ```
 2. 결정론 게이트를 돌린다. 실패하면 1로 돌아간다(실패 사유가 다음 프롬프트에 자동으로 들어간다).
    ```bash
    .harness/bin/harness feature verify ID
@@ -177,6 +187,14 @@ test -f .harness/project.json && test -x .harness/bin/harness && echo plugged ||
 .harness/bin/harness feature reset ID
 ```
 그다음 루프를 다시 돌릴지 묻는다.
+
+**다른 기능 때문에 멈췄을 때** ("범위 미지정 — 기록 전인 다른 기능(…)").
+범위 없는 기능은 트리 전체를 자기 변경으로 보기 때문에, 같은 트리에 진행 중인 다른 기능이 있으면 멈춘다. 원장을 손으로 고치지 않는다.
+- 멈춘 기능이 바꾼 파일을 알면 범위를 적는다. verified · reviewed 에서도 된다(게이트부터 다시 한다).
+  `.harness/bin/harness feature claim ID --files a,b`
+- 막고 있는 기능이 실제로는 진행 중이 아니면(구현을 시작했다가 끊김) 그 기능을 reset 한다. 작업 트리는 건드리지 않는다.
+  `.harness/bin/harness feature reset 막고있는ID`
+어느 쪽인지 모르면 `feature list --json` 의 상태와 `git status` 를 보여 주고 사용자에게 묻는다.
 
 ## 7. 회귀 확인 ("통과한 거 아직 괜찮아?")
 
