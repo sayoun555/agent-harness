@@ -253,7 +253,7 @@ GitHub 트리거는 main 에 직접 커밋하지 않고 PR 을 연다. 사람이
 ## 테스트
 
 ```bash
-bash tests/run.sh                     # 결정론 부품 175개
+bash tests/run.sh                     # 결정론 부품 176개
 node tests/workflow-sim.mjs           # 루프 그래프: LLM 만 가짜, 하네스 명령은 실제 실행
 node tests/workflow-sim-parallel.mjs  # 병렬 분기: 실제 git 워크트리, 충돌 포함
 node tests/workflow-sim-ledger.mjs    # 커밋 없는 운용: 커밋 0개 저장소, 같은 트리 병렬, 커밋·ref 0개 확인

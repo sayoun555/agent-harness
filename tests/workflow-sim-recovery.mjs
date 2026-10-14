@@ -40,7 +40,8 @@ async function runRecovery() {
     }
     const keys = schemaKeys(opts)
     if (keys.includes('exitCode')) {
-      if (/feature (list|next) --json/.test(prompt)) assert.match(prompt, /--fields /, '원장은 필요한 필드만 읽는다')
+      if (/feature (list|next|show) /.test(prompt)) assert.match(prompt, /--fields /, '원장은 필요한 필드만 읽는다')
+      if (/feature list /.test(prompt)) assert.match(prompt, /--fields id,status,lastFailure,question/, '모든 기능을 읽는 것은 끝 요약뿐이다')
       const result = runCommandNode(elsewhere, prompt)
       if (/feature review r /.test(prompt)) return { exitCode: result.exitCode, stdout: '' }   // 실행은 됐는데 응답을 잃었다
       return result

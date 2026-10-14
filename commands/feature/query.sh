@@ -5,7 +5,7 @@
 
 # --fields a,b → 기능마다 그 필드만 남기는 jq 필터 (없으면 전체).
 #   원장 전체에는 실패 출력 · 대조표 · 결정이 실려 커진다. 루프처럼 몇 필드만 필요한 쪽은 그것만 읽는다
-#   — 출력이 크면 에이전트가 옮기는 동안 잘리거나 걸러진다(현장 보고 E7).
+#   — 출력이 크면 에이전트가 옮기는 동안 오래 걸리고, 잘리거나 걸러진다(현장 보고 E9).
 fields_filter() {  # fields_filter <args...>
   local fields name
   fields="$(flag_value --fields "$@")"
@@ -21,6 +21,15 @@ cmd_list() {
   filter="$(fields_filter "$@")"   # 따로 대입해야 이름이 틀렸을 때 여기서 멈춘다
   if has_flag --json "$@"; then jq -c "[.features[] | $filter]" "$(features_file)"; return; fi
   jq -r '.features[] | "\(.status)\t\(.id)\t\(.description)\(if (.figma // "") != "" then "  [Figma]" else "" end)"' "$(features_file)" | column -t -s $'\t'
+}
+
+# 기능 하나만. 상태 하나를 확인하려고 모든 기능을 읽지 않는다.
+cmd_show() {
+  local id="${1:-}" filter; shift || true
+  [[ -n "$id" ]] || die "$EXIT_USAGE" "사용: feature show ID [--fields a,b]"
+  require_feature "$id"
+  filter="$(fields_filter "$@")"
+  feature_json "$id" | jq -c "$filter"
 }
 
 cmd_next() {

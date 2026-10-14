@@ -1554,6 +1554,14 @@ test_ledger_reads_can_pick_fields() {
   assert_exit 2 h feature list --json --fields 'id,.status'
 }
 
+test_show_reads_one_feature() {
+  add_feature a "에이" 'true'
+  add_feature b "비" 'true'
+  assert_eq "$(h feature show b --fields status)" '{"status":"pending"}'
+  assert_eq "$(h feature show b | jq -r .description)" "비"
+  assert_eq "$(h feature show nope --json 2>/dev/null | jq -r .result)" "error"
+}
+
 test_review_prompt_survives_diff_larger_than_limit() {
   jq '.review.maxDiffLines = 5' .harness/project.json > p && mv p .harness/project.json
   add_feature a "에이" 'true'

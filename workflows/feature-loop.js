@@ -157,9 +157,8 @@ async function runHarness(command, label) {
 function lostReply(reply) { return !reply || reply.result === 'error' }
 
 async function ledgerStatus(feature) {
-  const ledger = await runHarness('feature list --json --fields id,status', `원장:${feature.id}`)
-  const found = Array.isArray(ledger) ? ledger.find((f) => f.id === feature.id) : null
-  return found ? found.status : null
+  const found = await runHarness(`feature show ${feature.id} --fields status --json`, `원장:${feature.id}`)
+  return found && found.status ? found.status : null
 }
 
 // 답을 잃었는데 원장이 이미 wanted 상태면 그 단계는 된 것이다 — 이어 간다.
