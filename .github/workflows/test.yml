@@ -24,3 +24,5 @@ jobs:
         run: node tests/workflow-sim-ledger.mjs
       - name: 루프 복구 시뮬레이션
         run: node tests/workflow-sim-recovery.mjs
+      - name: 원장 퍼즈 (무작위 명령 순서 · 모델 호출 없음)
+        run: node tests/fuzz-ledger.mjs --seeds 40 --steps 20 --jobs 4

@@ -253,12 +253,17 @@ function implement(feature, mode, schema, extra = {}) {
   return spawn(implementPrompt(feature, mode), { label: `구현:${tagOf(feature)}`, phase: 'Loop', schema, ...extra }, implementerOf(feature))
 }
 
+// 범위를 판단 요청보다 먼저 적는다. 판단 대기로 떠나며 보관할 때 그 기능의 파일만 치우게.
+//   커밋 운용에는 범위가 없다(트리가 깨끗한 데서 한 기능씩 · 병렬은 워크트리).
+async function claimThenAsk(feature, work, iteration, autoCommit) {
+  return (autoCommit ? null : await claimChangedFiles(feature, work, iteration))
+    || askIfNeeded(feature, work, iteration)
+}
+
 // ── 한 바퀴: 순차 ──────────────────────────────────────────────────
 async function runSequential(feature, iteration, autoCommit) {
   const work = await implement(feature, 'sequential', IMPLEMENTATION)
-  return (await askIfNeeded(feature, work, iteration))
-    || (autoCommit ? null : await claimChangedFiles(feature, work, iteration))
-    || gateReviewRecord(feature, iteration)
+  return (await claimThenAsk(feature, work, iteration, autoCommit)) || gateReviewRecord(feature, iteration)
 }
 
 // ── 한 바퀴: 병렬 ──────────────────────────────────────────────────
@@ -282,10 +287,8 @@ async function runParallel(batch, iteration, autoCommit) {
   const ready = []
   for (let i = 0; i < batch.length; i++) {
     const feature = batch[i]
-    const asked = await askIfNeeded(feature, works[i], iteration)
-    if (asked) { outcomes.push(asked); continue }
-    const overlapped = autoCommit ? null : await claimChangedFiles(feature, works[i], iteration)
-    if (overlapped) { outcomes.push(overlapped); continue }
+    const held = await claimThenAsk(feature, works[i], iteration, autoCommit)
+    if (held) { outcomes.push(held); continue }
     ready.push({ feature, work: works[i] })
   }
   for (const { feature, work } of ready) {

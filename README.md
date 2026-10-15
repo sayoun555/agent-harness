@@ -135,7 +135,7 @@ curl -fsSL https://raw.githubusercontent.com/sayoun555/agent-harness/main/instal
 | 비교 기준 | HEAD | 기준선 (`harness baseline save`, git 트리 객체) |
 | 통과 기록 | 기능마다 git 커밋 | 원장 passing + 기준선 갱신 |
 | 막힘·승인 대기 기능의 변경 | `harness/<id>` 브랜치에 보관 | `.harness/parked/<id>.patch` 에 보관 |
-| 병렬 | 각자 워크트리 | 같은 트리 + 기능별 범위(claim) + 빌드 잠금 |
+| 병렬 | 각자 워크트리 (claim 은 쓰지 않는다) | 같은 트리 + 기능별 범위(claim) + 빌드 잠금 |
 
 **같은 트리의 소유권.** 범위(claim)가 없는 기능은 작업 트리 전체를 자기 변경으로 본다. 그래서 같은 트리에 기록 전인 다른 기능이 있으면(검증·검토를 통과했거나, 이 트리에서 구현을 시작한 기능) 게이트·검증·기록이 아무것도 건드리지 않고 멈춘다. 여러 기능을 같은 트리에서 동시에 하려면 claim 으로 범위를 나눈다. 커밋 없이 운용하는 루프는 순차에서도 구현자가 바꾼 파일을 claim 한다.
 **단계마다 같은 변경.** 게이트를 통과할 때와 검토를 승인할 때 변경의 해시를 남긴다. 다음 단계에서 다르면 대기열로 되돌린다. 기록할 변경이 비어 있어도 되돌린다("변경 없음 = 이상"). 다만 한 번 기록됐다가 다시 열린 기능은 코드가 이미 기준에 있어 변경이 없는 것이 정상이라, 다시 검증한 결과를 기록한다.
@@ -233,7 +233,7 @@ GitHub 트리거는 main 에 직접 커밋하지 않고 PR 을 연다. 사람이
 | 같은 실패 반복·시도 한도·커밋 실패로 막힘 | 원인을 보고 "그거 다시 해 줘" | `harness feature reset ID` |
 | 통과했던 기능이 깨졌는지 | "통과한 거 아직 괜찮아?" | `harness feature audit` |
 | 검증 뒤에 손으로 고친 기능 | "검증 끝난 뒤 바뀐 거 있어?" | `harness feature drift` (`--reopen` 이면 다시 대기열로) |
-| "범위 미지정" 으로 멈춤 (같은 트리에 기록 전인 다른 기능) | "하나씩 해 줘" | 멈춘 기능에 `harness feature claim ID --files a,b` (verified · reviewed 에서도 됨), 막고 있는 기능이 끊긴 것이면 `harness feature reset 그ID` |
+| "범위 미지정" 으로 멈춤 (같은 트리에 기록 전인 다른 기능) | "하나씩 해 줘" | 커밋 없이 운용하면 멈춘 기능에 `harness feature claim ID --files a,b` (verified · reviewed 에서도 됨). 막고 있는 기능이 끊긴 것이면 `harness feature reset 그ID` (커밋 운용은 이쪽만) |
 | 루프가 `stuck` 으로 멈춤 (같은 결과가 진전 없이 두 번) | "왜 멈췄어?" | 결과의 `stuck.reason` 을 보고 위 방법으로 푼다 |
 
 ## 다른 도구
@@ -253,11 +253,12 @@ GitHub 트리거는 main 에 직접 커밋하지 않고 PR 을 연다. 사람이
 ## 테스트
 
 ```bash
-bash tests/run.sh                     # 결정론 부품 176개
+bash tests/run.sh                     # 결정론 부품 181개
 node tests/workflow-sim.mjs           # 루프 그래프: LLM 만 가짜, 하네스 명령은 실제 실행
 node tests/workflow-sim-parallel.mjs  # 병렬 분기: 실제 git 워크트리, 충돌 포함
 node tests/workflow-sim-ledger.mjs    # 커밋 없는 운용: 커밋 0개 저장소, 같은 트리 병렬, 커밋·ref 0개 확인
 node tests/workflow-sim-recovery.mjs  # 복구: 전용 에이전트 없는 세션 · 프로젝트 밖 작업 디렉터리 · 잃은 응답 · 헛도는 반복
+node tests/fuzz-ledger.mjs            # 원장 퍼즈: 명령을 무작위 순서로 돌려 규칙끼리 부딪히는 곳을 찾는다 (모델 호출 없음, 시드로 재현)
 ```
 
 ## 알려진 한계
@@ -273,6 +274,7 @@ node tests/workflow-sim-recovery.mjs  # 복구: 전용 에이전트 없는 세�
 - 결정론 노드는 에이전트가 명령을 실행하고 결과를 전달한다. 전달이 틀려도 원장이 기준이지만, 루프의 분기 판단은 그 전달에 기댄다. 응답을 잃거나 명령이 거부되면 원장을 다시 읽어 판단한다(필요한 필드만).
 - 세션이 프로젝트 밖에서 열려 있으면 Workflow 도구가 워크플로우 사본을 거부한다. Claude Code 쪽 제약이다.
 - 자동 범위는 구현자가 보고한 바꾼 파일을 믿는다. 빠뜨린 파일은 그 기능의 기록에 들어가지 않는다.
+- 원장 퍼즈는 한 작업 트리에서의 원장 명령 조합(커밋 운용 · 커밋 없이)만 본다. 워크트리 병렬(adopt) · 루프 워크플로우의 분기 · 실행 렌즈는 대상이 아니다(분기는 시뮬레이션이 본다).
 - 에이전트가 `jq` 로 원장을 직접 바꾸는 것까지는 막지 않는다. `feature audit` 가 acceptance 를 다시 돌려 거짓 통과를 되돌린다.
 - Figma 렌즈는 가짜 엔진으로 인자와 판정만 확인했다. 실제 Figma 파일과 비교해 보지는 않았다.
 - Codex 어댑터, CI 게이트 템플릿, GitHub 루프 트리거 템플릿은 실제 환경에서 돌려 보지 않았다. 문법 검사와 단위 테스트까지다.

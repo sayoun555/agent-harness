@@ -45,7 +45,15 @@ require_sole_owner() {  # require_sole_owner <id>
   [[ ${#SCOPE[@]} -gt 0 ]] && return 0
   others="$(unrecorded_others "$1")"
   [[ -z "$others" ]] && return 0
-  die "$EXIT_USAGE" "범위 미지정 — 기록 전인 다른 기능($others)의 변경이 같은 트리에 섞여 있을 수 있어 $1 의 변경을 가를 수 없다. feature claim $1 --files 경로,경로 로 범위를 나누거나(verified·reviewed 에서도 된다), 한 기능씩 구현·기록한다."
+  die "$EXIT_USAGE" "범위 미지정 — 기록 전인 다른 기능($others)의 변경이 같은 트리에 섞여 있을 수 있어 $1 의 변경을 가를 수 없다. $(sole_owner_remedy "$1")"
+}
+
+sole_owner_remedy() {  # sole_owner_remedy <id> → 운용 방식에 맞는 푸는 길
+  if auto_commit_enabled; then
+    echo "한 기능씩 구현·기록한다. 막고 있는 기능이 끊긴 것이면 feature reset 그ID (커밋 운용에서는 범위를 나누지 않는다)."
+  else
+    echo "feature claim $1 --files 경로,경로 로 범위를 나누거나(verified·reviewed 에서도 된다), 막고 있는 기능이 끊긴 것이면 feature reset 그ID."
+  fi
 }
 
 # ── 게이트가 본 변경 = 검토한 변경 = 기록할 변경 ─────────────────────
@@ -154,14 +162,16 @@ park_as_patch() {  # park_as_patch <id> [paths...] → 패치 경로 (변경이 
 }
 
 # set_aside_changes <id> <kind> — 변경을 치우고 원장에 위치를 적는다
+#   변경이 트리를 떠나므로 진행 중 표시와 범위를 함께 푼다. 범위를 쥔 채로 두면 그 파일을 고쳐야 하는
+#   다른 기능의 claim 이 계속 거부된다. 승인으로 되가져오면 보관본의 경로로 범위를 다시 잡는다(adopt_patch_scope).
 set_aside_changes() {
   local id="$1" kind="$2" ref parked
-  set_feature_fields "$id" '{"implementedUnder": null}'   # 변경이 트리를 떠난다 — 다시 구현하면 새로 남는다
+  scope_of "$id"   # 풀기 전에 읽는다 — 보관할 경로다
+  set_feature_fields "$id" '{"implementedUnder": null, "scope": null}'
   if auto_commit_enabled; then
     ref="$(park_changes "$id" "wip($id): $kind — $(feature_field "$id" description)")"
     parked='{"kind":"branch"}'
   else
-    scope_of "$id"
     ref="$(park_as_patch "$id" ${SCOPE[@]+"${SCOPE[@]}"})"
     parked='{"kind":"patch"}'
   fi

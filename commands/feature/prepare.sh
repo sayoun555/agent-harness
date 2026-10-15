@@ -36,6 +36,8 @@ cmd_add() {
 # 다시 claim 하면 범위에 더한다. 앞 시도의 변경도 트리에 남아 있기 때문이다.
 # verified · reviewed 에서도 claim 할 수 있다(범위 없이 판정을 받았는데 다른 기능 때문에 기록이 막혔을 때).
 # 범위가 바뀌면 게이트가 본 변경이 아니므로 pending 으로 돌려 게이트부터 다시 한다.
+# 커밋으로 운용할 때는 쓰지 않는다. 커밋과 보관(브랜치)이 트리 전체를 담아서 범위를 지킬 수 없다 —
+# 그 운용은 깨끗한 트리에서 한 기능씩, 병렬은 워크트리(adopt)로 한다. (adopt 가 커밋 없는 운용에서 거부되는 것과 짝)
 claimed_by_others() {  # claimed_by_others <id> <파일 JSON 배열> → "경로(기능)" 쉼표로
   jq -r --arg id "$1" --argjson files "$2" '
     [.features[] | select(.id != $id and .scope != null) as $f
@@ -47,6 +49,7 @@ cmd_claim() {
   local files files_json taken json_mode scope_json status
   files="$(flag_value --files "$@")"
   [[ -n "$id" && -n "$files" ]] || die "$EXIT_USAGE" "사용: feature claim ID --files 경로,경로"
+  auto_commit_enabled && die "$EXIT_USAGE" "커밋으로 운용할 때는 claim 을 쓰지 않는다 — 커밋과 보관이 트리 전체를 담는다. 한 기능씩 기록하고, 막고 있는 기능이 끊긴 것이면 feature reset 한다"
   require_features_file; require_feature "$id"
   require_status "$id" "$STATUS_PENDING" "$STATUS_VERIFIED" "$STATUS_REVIEWED"
   json_mode="$(json_mode_of "$@")"
@@ -71,8 +74,6 @@ cmd_claim() {
 }
 
 # ── 루프 사전 점검 ───────────────────────────────────────────────────
-worktree_is_clean() { [[ -z "$(git status --porcelain --untracked-files=normal)" ]]; }
-
 PREFLIGHT_PROBLEMS=()
 PREFLIGHT_NOTES=()
 
@@ -86,16 +87,41 @@ check_ledger_ready() {
 }
 
 # 커밋으로 운용하면 남의 변경을 커밋하지 않도록 깨끗한 트리와 기준 커밋이 필요하다.
+#   원장은 빼고 본다 — 기록되지 않고 떠난 기능(막힘 · 승인 대기 · 판단 대기)은 원장만 바꿔 두고 커밋하지 않는다.
+#   원장까지 보면 그런 기능이 하나라도 생긴 뒤로 다음 루프가 시작하지 못한다. (approve 의 확인과 같은 기준)
 # 커밋 없이 운용하면 지금 상태를 기준선으로 삼는다(이미 있으면 그대로).
 check_working_tree_ready() {
   if auto_commit_enabled; then
     has_head_commit || PREFLIGHT_PROBLEMS+=("커밋이 하나도 없다 — 기준 커밋이 필요하다 (커밋 없이 쓰려면 loop.autoCommit: false)")
-    worktree_is_clean || PREFLIGHT_PROBLEMS+=("작업 트리가 깨끗하지 않다 — 루프가 남의 변경까지 커밋하지 않도록 먼저 커밋하거나 stash 한다")
+    if has_changes_outside_ledger; then
+      PREFLIGHT_PROBLEMS+=("작업 트리가 깨끗하지 않다 — 루프가 남의 변경까지 커밋하지 않도록 먼저 커밋하거나 stash 한다")
+    else
+      release_stale_in_flight
+    fi
     return 0
   fi
   has_baseline && return 0
   baseline_save
   PREFLIGHT_NOTES+=("기준선을 지금 상태로 저장했다 — 이후 변경은 이 기준선과 비교한다")
+}
+
+# 커밋 운용에서 트리가 깨끗하면(원장 밖) 이 트리에 진행 중인 변경은 없다. 남은 진행 중 표시는 끊긴 실행의 흔적이다.
+#   그대로 두면 그런 기능끼리 소유권 확인에서 서로를 막고, verified · reviewed 는 루프가 고르지 않아 영영 남는다.
+#   pending 은 표시만 지우고, verified · reviewed 는 볼 변경이 없으니 pending 으로 되돌린다(다시 구현).
+release_stale_in_flight() {
+  [[ -f "$(features_file)" ]] || return 0
+  local stale
+  stale="$(jq -r "$JQ_IN_FLIGHT"' [.features[] | select(in_flight) | .id] | join(", ")' "$(features_file)")"
+  [[ -z "$stale" ]] && return 0
+  json_update "$(features_file)" "$JQ_IN_FLIGHT"'
+    .features |= map(if in_flight then
+      .implementedUnder = null
+      | if .status == "verified" or .status == "reviewed"
+        then .status = "pending" | .lastFailure = "작업 트리에 변경이 없다 — 다시 구현한다 (사전 점검)" | .lastFailureDetail = ""
+        else . end
+    else . end)'
+  trace_add preflight "$(jq -cn --arg ids "$stale" '{result: "released-stale", features: $ids}')"
+  PREFLIGHT_NOTES+=("작업 트리가 깨끗한데 진행 중으로 남은 기능을 풀었다(끊긴 실행의 흔적): $stale")
 }
 
 # 검증을 통과한 뒤 손으로 고친 기능은 다시 대기열로 — 이번 루프가 다시 검증한다

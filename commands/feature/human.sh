@@ -4,6 +4,8 @@
 #
 
 # 구현자가 스스로 정할 수 없는 설계 결정을 만나면 질문을 남기고 판단 대기로 빠진다.
+# 판단 대기로 떠나며 변경을 보관하므로, 다른 보관 경로(verify · review · record)처럼 소유권을 먼저 본다 —
+# 범위 없이 보관하면 같은 트리에 있는 다른 기능의 변경까지 이 기능의 보관본으로 치운다.
 cmd_ask() {
   local id="${1:-}"; shift || true
   local question
@@ -11,6 +13,7 @@ cmd_ask() {
   [[ -n "$id" && -n "$question" ]] || die "$EXIT_USAGE" "사용: feature ask ID --question 질문"
   require_features_file; require_feature "$id"
   require_status "$id" "$STATUS_PENDING"
+  require_sole_owner "$id"
   set_feature_fields "$id" "$(jq -cn --arg q "$question" '{status: "needs-decision", question: $q}')"
   set_aside_changes "$id" "needs-decision"
   trace_add ask "$(jq -cn --arg id "$id" --arg q "$question" '{feature: $id, result: "needs-decision", question: $q}')"

@@ -1491,6 +1491,73 @@ test_reset_releases_in_flight_feature_without_touching_tree() {
   assert_exit 2 h feature reset a   # 통과한 기능은 reset 하지 않는다
 }
 
+# ── 원장 퍼즈가 찾은 것 (tests/fuzz-ledger.mjs) ─────────────────────
+test_ask_does_not_park_changes_of_another_feature() {
+  use_ledger_mode
+  add_feature a "에이" 'true'
+  add_feature d "디" 'true'
+  h feature preflight >/dev/null 2>&1
+  h prompt implement a >/dev/null; echo 'a' > src/a.js
+  h prompt implement d >/dev/null
+  assert_exit 2 h feature ask d --question '어느 쪽?'   # 범위 없이 보관하면 a 의 변경까지 치운다
+  assert_eq "$(cat src/a.js)" "a"
+  assert_eq "$(status_of d)" "pending"
+  h feature claim d --files src/d.js >/dev/null
+  assert_exit 0 h feature ask d --question '어느 쪽?'   # 범위가 있으면 자기 파일만 보관한다
+  assert_eq "$(cat src/a.js)" "a"
+}
+
+test_claim_is_refused_in_commit_mode() {
+  add_feature a "에이" 'true'
+  assert_exit 2 h feature claim a --files src/a.js   # 커밋 · 보관이 트리 전체를 담아 범위를 지킬 수 없다
+  assert_contains "$(h feature claim a --files src/a.js 2>&1)" "커밋으로 운용할 때는 claim 을 쓰지 않는다"
+}
+
+test_parked_feature_releases_its_scope() {
+  use_ledger_mode
+  jq '.approval.riskGlobs = ["*payment*"]' .harness/project.json > p && mv p .harness/project.json
+  add_feature pay "결제" 'true'
+  add_feature b "비" 'true'
+  h feature preflight >/dev/null 2>&1
+  h prompt implement pay >/dev/null; echo 'p' > src/payment.js; echo 's' > src/shared.js
+  h feature claim pay --files src/payment.js,src/shared.js >/dev/null
+  verify_and_review pay
+  h feature record pay >/dev/null 2>&1
+  assert_eq "$(status_of pay)" "awaiting-approval"
+  assert_eq "$(field_of pay scope)" "null" "(변경이 보관돼 트리를 떠났다 — 범위도 푼다)"
+  assert_exit 0 h feature claim b --files src/shared.js
+  h feature reset b >/dev/null
+  h feature approve pay >/dev/null 2>&1
+  assert_eq "$(status_of pay)" "passing" "(승인하면 보관본의 경로로 범위를 다시 잡아 기록한다)"
+}
+
+test_commit_mode_preflight_ignores_ledger_only_changes() {
+  jq '.loop.maxAttempts = 1' .harness/project.json > p && mv p .harness/project.json
+  git add -A; git commit -qm config
+  add_feature bad "나쁨" 'false'
+  h prompt implement bad >/dev/null; echo 'x' > src/bad.js
+  h feature verify bad >/dev/null 2>&1
+  assert_eq "$(status_of bad)" "blocked"
+  assert_eq "$(git status --porcelain)" " M .harness/features.json" "(막힌 기능은 원장만 바꿔 둔다)"
+  assert_exit 0 h feature preflight   # 원장 변경 때문에 다음 루프가 막히면 안 된다
+  echo 'y' > src/other.js
+  assert_exit 1 h feature preflight   # 원장 밖 변경은 그대로 막는다
+}
+
+test_commit_mode_preflight_releases_stale_in_flight_marks() {
+  add_feature a "에이" 'true'
+  add_feature b "비" 'true'
+  h prompt implement a >/dev/null; echo 'a' > src/a.js
+  h feature verify a >/dev/null 2>&1
+  h prompt implement b >/dev/null
+  git stash push -u -q -- . ':(exclude).harness'   # 끊긴 실행의 변경을 사람이 치웠다
+  h feature preflight >/dev/null 2>&1
+  assert_eq "$(status_of a)" "pending" "(verified 인데 볼 변경이 없다 — 다시 구현)"
+  assert_eq "$(field_of a implementedUnder)$(field_of b implementedUnder)" "nullnull"
+  h prompt implement b >/dev/null; echo 'b' > src/b.js
+  assert_exit 0 h feature verify b   # 남은 표시가 b 를 막지 않는다
+}
+
 test_json_mode_reports_refusal_on_stdout() {
   use_ledger_mode
   add_feature a "에이" 'true'

@@ -190,6 +190,7 @@ test -f .harness/project.json && test -x .harness/bin/harness && echo plugged ||
 
 **다른 기능 때문에 멈췄을 때** ("범위 미지정 — 기록 전인 다른 기능(…)").
 범위 없는 기능은 트리 전체를 자기 변경으로 보기 때문에, 같은 트리에 진행 중인 다른 기능이 있으면 멈춘다. 원장을 손으로 고치지 않는다.
+커밋으로 운용하면 claim 은 거부된다(아래 reset 만 쓴다).
 - 멈춘 기능이 바꾼 파일을 알면 범위를 적는다. verified · reviewed 에서도 된다(게이트부터 다시 한다).
   `.harness/bin/harness feature claim ID --files a,b`
 - 막고 있는 기능이 실제로는 진행 중이 아니면(구현을 시작했다가 끊김) 그 기능을 reset 한다. 작업 트리는 건드리지 않는다.
