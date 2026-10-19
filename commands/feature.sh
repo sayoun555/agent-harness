@@ -45,7 +45,7 @@ source "$HARNESS_HOME/lib/runtime.sh"
 for part in query prepare gate record human; do
   source "$HARNESS_HOME/commands/feature/$part.sh"
 done
-require_commands git jq shasum
+require_commands git jq "$SHA1_COMMAND"
 project_is_plugged_in || die "$EXIT_CONFIG" "이 프로젝트에 하네스가 없다 (harness init)"
 cd "$PROJECT_ROOT"
 

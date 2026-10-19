@@ -41,6 +41,18 @@ cleanup_project() { cd /; rm -rf "$1"; }
 delete_lines() { grep -v -- "$1" "$2" > "$2.tmp" || true; mv "$2.tmp" "$2"; }
 
 h() { bash "$HARNESS" "$@"; }
+# 하네스가 보는 프로젝트 루트(git 최상위). Windows 의 git 은 C:/… 로 내서 $PWD(/c/…)와 표기가 다르다.
+project_root() { git rev-parse --show-toplevel; }
+
+# claude · uimatch 같은 외부 도구를 숨긴 PATH. 하네스가 꼭 쓰는 jq 는 남긴다(Windows 에서는 /usr/bin 밖에 있다).
+path_without_extras() {
+  local dir
+  dir="$(mktemp -d)"
+  printf '#!/bin/sh\nexec "%s" "$@"\n' "$(type -P jq)" > "$dir/jq"
+  chmod +x "$dir/jq"
+  printf '/usr/bin:/bin:%s\n' "$dir"
+}
+
 status_of() { jq -r --arg id "$1" '.features[] | select(.id == $id) | .status' .harness/features.json; }
 field_of() { jq -r --arg id "$1" --arg f "$2" '.features[] | select(.id == $id) | .[$f]' .harness/features.json; }
 
@@ -441,7 +453,7 @@ test_init_no_plugin_leaves_claude_settings_alone() {
 test_path_workflow_is_a_copy_inside_the_project() {
   local path
   path="$(h path workflow)"
-  assert_eq "$path" "$(pwd -P)/.harness/bin/feature-loop.js" "(Workflow 도구는 작업 디렉터리 밖 경로를 거부한다)"
+  assert_eq "$path" "$(project_root)/.harness/bin/feature-loop.js" "(Workflow 도구는 작업 디렉터리 밖 경로를 거부한다)"
   assert_eq "$(cmp -s "$path" "$ROOT/workflows/feature-loop.js" && echo same)" "same"
   echo "// 낡은 사본" > "$path"
   h path workflow >/dev/null
@@ -516,7 +528,7 @@ test_mcp_matches_plugin_namespaced_server() {
 
 test_mcp_unknown_without_claude_cli() {
   recommend_playwright
-  assert_eq "$(mcp_state "$(PATH="/usr/bin:/bin" h mcp --json)")" "unknown"
+  assert_eq "$(mcp_state "$(PATH="$(path_without_extras)" h mcp --json)")" "unknown"
 }
 
 test_mcp_not_checked_when_preset_recommends_none() {
@@ -897,7 +909,7 @@ test_figma_is_off_without_components() {
 
 test_figma_skips_without_engine_or_token() {
   configure_figma
-  assert_contains "$(PATH="/usr/bin:/bin" h figma)" "UIMatch 가 없다"
+  assert_contains "$(PATH="$(path_without_extras)" h figma)" "UIMatch 가 없다"
   local bin
   bin="$(fake_uimatch_bin 0)"
   assert_contains "$(PATH="$bin:$PATH" FIGMA_ACCESS_TOKEN= h figma)" "FIGMA_ACCESS_TOKEN 이 없다"
@@ -909,7 +921,7 @@ test_figma_passes_documented_arguments() {
   local bin
   bin="$(fake_uimatch_bin 0)"
   assert_exit 0 env PATH="$bin:$PATH" FIGMA_ACCESS_TOKEN=figd_x bash "$HARNESS" figma button
-  assert_eq "$(paste -sd ' ' "$bin/args")" "compare figma=KEY123:1-2 story=http://localhost:6006/iframe.html?id=button profile=component/strict outDir=$(pwd -P)/.harness/figma/button selector=#root button"
+  assert_eq "$(paste -sd ' ' "$bin/args")" "compare figma=KEY123:1-2 story=http://localhost:6006/iframe.html?id=button profile=component/strict outDir=$(project_root)/.harness/figma/button selector=#root button"
 }
 
 test_figma_fails_when_design_diverges() {
@@ -951,7 +963,7 @@ test_loop_run_invokes_headless_claude_with_workflow() {
   local bin
   bin="$(fake_loop_claude '{"stopReason":"all-done"}')"
   assert_exit 0 env PATH="$bin:$PATH" bash "$HARNESS" loop run --max 5 --parallel 2 --plugin-dir /opt/harness
-  assert_contains "$(cat "$bin/prompt")" '"scriptPath": "'"$(pwd -P)"'/.harness/bin/feature-loop.js"'
+  assert_contains "$(cat "$bin/prompt")" '"scriptPath": "'"$(project_root)"'/.harness/bin/feature-loop.js"'
   assert_contains "$(cat "$bin/prompt")" '{"maxIterations":5,"parallel":2,"agents":{"runner":"agent-harness:harness-runner"'
   assert_contains "$(paste -sd ' ' "$bin/args")" "-p --output-format text --permission-mode acceptEdits"
   assert_contains "$(paste -sd ' ' "$bin/args")" "--plugin-dir /opt/harness"

@@ -74,7 +74,7 @@ result_json() {
 
 # 실패 메시지에서 숫자(시간·줄 번호 등)를 지워 "같은 실패"를 안정적으로 비교한다.
 failure_fingerprint() {
-  printf '%s' "$1" | sed 's/[0-9][0-9]*/N/g' | shasum | cut -c1-12
+  printf '%s' "$1" | sed 's/[0-9][0-9]*/N/g' | "$SHA1_COMMAND" | cut -c1-12
 }
 
 # record_failure <id> <reason> <detail> → 새 상태를 stdout 으로

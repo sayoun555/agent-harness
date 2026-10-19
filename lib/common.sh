@@ -114,6 +114,8 @@ cfg_lines() { load_config; jq -r "($1 // [])[]" <<<"$RESOLVED_CONFIG"; }
 #   디렉터리가 없으면 입력을 그대로 돌려준다.
 canonical_path() {
   local path="$1" dir
+  # Windows 프로그램(Claude Code 의 훅 입력 포함)은 C:\Users\… 로 넘긴다. dirname · cd 는 / 만 구분자로 본다.
+  [[ "$WINDOWS_SHELL" -eq 1 ]] && path="${path//\\//}"
   dir="$(cd "$(dirname "$path")" 2>/dev/null && pwd -P)" || { printf '%s\n' "$path"; return; }
   printf '%s/%s\n' "$dir" "$(basename "$path")"
 }
