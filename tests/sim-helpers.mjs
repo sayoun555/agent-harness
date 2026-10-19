@@ -5,7 +5,7 @@ import { spawnSync } from 'node:child_process'
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, dirname } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 
 export const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 // bash 명령 문자열에 넣는 경로라 / 로 쓴다 — Windows 의 D:\a\… 는 bash 가 역슬래시를 이스케이프로 먹는다
@@ -49,7 +49,7 @@ export async function loadWorkflow(globals) {
   const wrapped = `export default async function run({ agent, parallel, phase, log, args, budget }) {\n${source}\n}`
   const file = join(mkdtempSync(join(tmpdir(), 'wf-')), 'wf.mjs')
   writeFileSync(file, wrapped)
-  const module = await import(file)
+  const module = await import(pathToFileURL(file).href)  // Windows 의 C:\… 는 URL 이 아니라서 import 가 거부한다
   return () => module.default(globals)
 }
 
