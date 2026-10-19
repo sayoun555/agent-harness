@@ -15,15 +15,12 @@
 import { execFileSync, spawnSync } from 'node:child_process'
 import { mkdtempSync, readFileSync, writeFileSync, appendFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join, dirname } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { join, delimiter } from 'node:path'
 import assert from 'node:assert/strict'
 
 const TAIL_FIGMA = 'https://www.figma.com/design/abc?node-id=7-8'
 const questions_cache = "Redis 와 메모리 캐시 중 무엇으로? ('it's' 따옴표 포함)"
 
-const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
-const HARNESS = join(ROOT, 'bin/harness')
 
 // ── 임시 프로젝트 ──────────────────────────────────────────────────
 // 가짜 claude: `claude mcp list` 에 Playwright 가 연결된 것처럼 답한다 (실제 MCP 설정은 건드리지 않음)
@@ -31,7 +28,7 @@ const FAKE_BIN = mkdtempSync(join(tmpdir(), 'fake-claude-'))
 writeFileSync(join(FAKE_BIN, 'claude'),
   '#!/usr/bin/env bash\n[[ "$1 $2" == "mcp list" ]] && printf "%s\\n" "playwright: npx -y @playwright/mcp@latest - ✔ Connected" "figma: npx -y figma-developer-mcp --stdio - ✔ Connected"\n',
   { mode: 0o755 })
-const ENV = { ...process.env, PATH: `${FAKE_BIN}:${process.env.PATH}` }
+const ENV = { ...process.env, PATH: `${FAKE_BIN}${delimiter}${process.env.PATH}` }
 
 function sh(cwd, command) {
   return spawnSync('bash', ['-c', command], { cwd, encoding: 'utf8', env: ENV })
@@ -114,7 +111,7 @@ function makeFakeAgent(project) {
 }
 
 // ── 워크플로우 로드 ────────────────────────────────────────────────
-import { loadWorkflow, fakeParallel, featureIdOf, followBootstrap, checklistVerdict } from './sim-helpers.mjs'
+import { loadWorkflow, fakeParallel, featureIdOf, followBootstrap, checklistVerdict, HARNESS } from './sim-helpers.mjs'
 
 
 // ── 실행 · 단언 ────────────────────────────────────────────────────
