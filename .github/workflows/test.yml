@@ -8,6 +8,12 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
+        # 퍼즈가 보는 원장 규칙은 OS 와 무관하다. Windows 는 프로세스 하나가 열 배쯤 비싸서(40개 순서에 2시간)
+        # 그곳에서는 OS 차이가 퍼즈 경로에서도 깨지지 않는지만 본다.
+        include:
+          - fuzz-seeds: 40
+          - os: windows-latest
+            fuzz-seeds: 6
     runs-on: ${{ matrix.os }}
     defaults:
       run:
@@ -34,4 +40,4 @@ jobs:
         run: node tests/workflow-sim-recovery.mjs
       - name: 원장 퍼즈 (무작위 명령 순서 · 모델 호출 없음)
         if: ${{ !cancelled() }}  # 앞 단계가 실패해도 돌려서 한 번에 다 본다
-        run: node tests/fuzz-ledger.mjs --seeds 40 --steps 20 --jobs 4
+        run: node tests/fuzz-ledger.mjs --seeds ${{ matrix.fuzz-seeds }} --steps 20 --jobs 4
