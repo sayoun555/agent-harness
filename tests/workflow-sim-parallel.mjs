@@ -15,7 +15,7 @@ import { join } from 'node:path'
 import assert from 'node:assert/strict'
 import {
   makeProject, addFeature, mustRun, loadWorkflow, fakeParallel, noBudget, runCommandNode, schemaKeys,
-  featureIdOf, followBootstrap, checklistVerdict,
+  featureIdOf, followBootstrap, checklistVerdict, bashPath,
 } from './sim-helpers.mjs'
 
 const project = makeProject({ loop: { maxAttempts: 3, repeatLimit: 2, parallel: 2 } })
@@ -45,10 +45,10 @@ function rewriteTag(wt, change) {
 function implementInWorktree(id) {
   const wt = join(mkdtempSync(join(tmpdir(), 'wt-')), id)
   const branch = `harness/wip-${id}`
-  mustRun(project, `git worktree add -q --detach ${wt} HEAD`)
+  mustRun(project, `git worktree add -q --detach ${bashPath(wt)} HEAD`)
   implement[id](wt)
   mustRun(wt, `git checkout -q -b ${branch} && git add -A -- . ':(exclude).harness/features.json' && git commit -q -m "wip(${id})"`)
-  mustRun(project, `git worktree remove --force ${wt}`)
+  mustRun(project, `git worktree remove --force ${bashPath(wt)}`)
   return branch
 }
 

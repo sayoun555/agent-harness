@@ -8,8 +8,9 @@ import { join, dirname } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
 export const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
-// bash 명령 문자열에 넣는 경로라 / 로 쓴다 — Windows 의 D:\a\… 는 bash 가 역슬래시를 이스케이프로 먹는다
-export const HARNESS = join(ROOT, 'bin/harness').replaceAll('\\', '/')
+// bash 명령 문자열에 넣는 경로는 / 로 쓴다 — Windows 의 D:\a\… 는 bash 가 역슬래시를 이스케이프로 먹는다
+export const bashPath = (path) => path.replaceAll('\\', '/')
+export const HARNESS = bashPath(join(ROOT, 'bin/harness'))
 
 export function sh(cwd, command, env = process.env) {
   return spawnSync('bash', ['-c', command], { cwd, encoding: 'utf8', env })
