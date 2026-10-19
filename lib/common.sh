@@ -14,6 +14,8 @@ HARNESS_HOME="${HARNESS_HOME:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 readonly HARNESS_HOME
 export HARNESS_HOME
 
+source "$HARNESS_HOME/lib/platform.sh"
+
 # ── 출력 ───────────────────────────────────────────────────────────
 # 사람이 읽는 메시지는 stderr, 기계가 읽는 결과(JSON)는 stdout.
 info() { printf '%s\n' "$*" >&2; }

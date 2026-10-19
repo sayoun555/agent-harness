@@ -8,6 +8,7 @@ set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 HARNESS="$ROOT/bin/harness"
+source "$ROOT/lib/platform.sh"
 FILTER="${1:-}"
 PASSED=0
 FAILED=0
