@@ -48,7 +48,7 @@ async function runRecovery() {
     }
     const id = featureIdOf(prompt)
     if (keys.includes('filesChanged')) {
-      assert.match(prompt, new RegExp(`프로젝트 루트는 ${project}`))
+      assert.ok(prompt.includes(`프로젝트 루트는 ${project} `), "프롬프트가 프로젝트 루트를 알려야 한다")  // 경로를 정규식에 넣으면 Windows 의 \ 가 이스케이프가 된다
       followBootstrap(elsewhere, prompt)
       writeFileSync(join(project, `src/${id}.js`), `export const ${id} = 1;\n`)
       return { needsDecision: false, question: '', summary: id, filesChanged: [`src/${id}.js`] }

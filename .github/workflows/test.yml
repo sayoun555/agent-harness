@@ -21,12 +21,17 @@ jobs:
       - name: 결정론 부품
         run: bash tests/run.sh
       - name: 루프 그래프 시뮬레이션
+        if: ${{ !cancelled() }}  # 앞 단계가 실패해도 돌려서 한 번에 다 본다
         run: node tests/workflow-sim.mjs
       - name: 병렬 분기 시뮬레이션
+        if: ${{ !cancelled() }}  # 앞 단계가 실패해도 돌려서 한 번에 다 본다
         run: node tests/workflow-sim-parallel.mjs
       - name: 커밋 없는 운용 시뮬레이션
+        if: ${{ !cancelled() }}  # 앞 단계가 실패해도 돌려서 한 번에 다 본다
         run: node tests/workflow-sim-ledger.mjs
       - name: 루프 복구 시뮬레이션
+        if: ${{ !cancelled() }}  # 앞 단계가 실패해도 돌려서 한 번에 다 본다
         run: node tests/workflow-sim-recovery.mjs
       - name: 원장 퍼즈 (무작위 명령 순서 · 모델 호출 없음)
+        if: ${{ !cancelled() }}  # 앞 단계가 실패해도 돌려서 한 번에 다 본다
         run: node tests/fuzz-ledger.mjs --seeds 40 --steps 20 --jobs 4
