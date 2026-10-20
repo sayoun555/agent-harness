@@ -104,7 +104,7 @@ CI 에 Windows(Git Bash) 실행기를 붙이자 테스트 181개 중 109개가 �
 |---|---|---|
 | 상태 · 경로 비교가 거의 모두 어긋났다(`애드온이 없다: supabase` 뒤에 줄바꿈) | 네이티브 `jq.exe` 는 줄 끝을 CRLF 로 낸다. `$(jq -r …)` 값 끝에 `\r` 이 붙었다 | Windows 에서만 `jq --binary`(LF 그대로). 판정은 `$OSTYPE` 으로 — 프로세스를 띄우지 않는다 |
 | 원장 명령이 `필요한 명령이 없다: shasum` 으로 멈췄다 | Git Bash 에는 perl 의 `shasum` 이 없고 `sha1sum` 만 있다 | 있는 쪽을 고른다(`SHA1_COMMAND`). 출력이 같아 이미 적힌 해시(기준 버전 · 실패 지문)가 그대로 맞는다 |
-| (테스트로 재현하기 전에 찾음) 훅이 편집 파일을 프로젝트 기준 경로로 바꾸지 못한다 | Windows 의 Claude Code 는 훅 입력에 `C:\Users\…` 를 넘기고, `dirname` · `cd` 는 `/` 만 구분자로 본다 | 경로 정규화(`canonical_path`)가 Windows 에서 `\` 를 `/` 로 바꾼다 |
+| (예방, 실측 아님) 훅이 편집 파일을 프로젝트 기준 경로로 바꾸지 못할 수 있다 | Windows 프로그램은 경로를 `C:\Users\…` 로 넘긴다(Claude Code 훅 입력의 실제 형식은 확인하지 않았다). `dirname` · `cd` 는 `/` 만 구분자로 본다 | 경로 정규화(`canonical_path`)가 Windows 에서 `\` 를 `/` 로 바꾼다 |
 | 테스트가 하네스와 다른 루트 표기(`/c/…` 대 `C:/…`)로 비교했다. 외부 도구를 숨기려고 줄인 PATH 에서 jq 까지 사라졌다 | git 은 `C:/…`, `$PWD` 는 `/c/…` 로 낸다. Windows 의 jq 는 `/usr/bin` 밖에 있다 | 테스트도 루트를 git 최상위로 구한다(`project_root`). 줄인 PATH 에는 jq 만 남긴다(`path_without_extras`) |
 | 시뮬레이션이 bash 에 경로를 넘기지 못했다 | Node 의 `D:\a\…` 를 bash 가 역슬래시 이스케이프로 먹었다. PATH 구분자(`;`), `import()` 의 절대 경로(URL 이 아님), 경로를 넣은 정규식도 같은 종류 | `bashPath`(`/` 표기) 한 도우미, `path.delimiter`, `pathToFileURL`, 정규식 대신 문자열 포함 |
 | Windows CI 가 3시간 걸렸다(테스트 50분 · 퍼즈 2시간, macOS 는 합쳐 15분) | 하네스는 명령마다 jq · git 프로세스를 많이 띄우고, Windows 는 프로세스 하나가 열 배쯤 비싸다 | 퍼즈가 보는 원장 규칙은 OS 와 무관하므로 Windows 에서는 작게(6시드). CI 는 앞 단계가 실패해도 나머지 테스트를 돌려 한 번에 다 본다 |
