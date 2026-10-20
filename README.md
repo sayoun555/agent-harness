@@ -25,6 +25,7 @@
 | `run` | 실행 렌즈: 설치·실행·스크린샷·로그를 모아 검증자에게 (UI 전용, 꺼져 있음) | 실행 실패면 게이트 실패 |
 | `lock` | 빌드 잠금. 같은 트리에서 여러 에이전트가 빌드할 때 | — |
 | `trace` | 노드마다 한 줄 JSONL. 반복 감지·비용·부품 빼 보기 실험의 원천 | — |
+| `trace report` | trace 와 원장으로 사람이 읽는 보고서(`.harness/runs/report.md`): 기능별 문제와 해결, 처음 통과까지 시간 · 반려 수, 기능을 넘어 반복된 품질 기준, 하네스 이상 신호, 사람이 할 일. 루프가 끝날 때 만든다. 모델 호출 없음 | — |
 | `feature-loop` | 위 부품을 잇는 제한 루프 워크플로우. 순차 또는 병렬. 원장이 세지 않는 같은 결과(명령 거부 · 응답 없음)가 두 번 연속이면 `stuck` 으로 멈춘다 | 멈춤 |
 | `loop` | 사람 없이 루프 실행(할 일이 없으면 토큰 0), cron 줄 출력, GitHub 트리거 템플릿 | — |
 | `mcp` | 프리셋이 권하는 MCP 의 연결 여부 확인 (설치하지 않음) | — |
@@ -254,7 +255,7 @@ GitHub 트리거는 main 에 직접 커밋하지 않고 PR 을 연다. 사람이
 ## 테스트
 
 ```bash
-bash tests/run.sh                     # 결정론 부품 181개
+bash tests/run.sh                     # 결정론 부품 182개
 node tests/workflow-sim.mjs           # 루프 그래프: LLM 만 가짜, 하네스 명령은 실제 실행
 node tests/workflow-sim-parallel.mjs  # 병렬 분기: 실제 git 워크트리, 충돌 포함
 node tests/workflow-sim-ledger.mjs    # 커밋 없는 운용: 커밋 0개 저장소, 같은 트리 병렬, 커밋·ref 0개 확인

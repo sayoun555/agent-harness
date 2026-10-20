@@ -11,6 +11,7 @@ set -euo pipefail
 source "$HARNESS_HOME/lib/common.sh"
 source "$HARNESS_HOME/lib/cli.sh"
 source "$HARNESS_HOME/lib/features.sh"
+source "$HARNESS_HOME/lib/trace.sh"
 source "$HARNESS_HOME/lib/criteria.sh"
 source "$HARNESS_HOME/lib/prompts.sh"
 require_commands jq

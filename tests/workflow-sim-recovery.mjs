@@ -11,7 +11,7 @@
 //         같은 결과가 두 번 연속이면 루프를 멈춘다 (maxIterations 까지 돌지 않는다)
 // 실행 3  다음 기능을 고르는 명령의 응답을 잃었다 → 완료로 끝내지 않는다
 
-import { mkdtempSync, writeFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, writeFileSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import assert from 'node:assert/strict'
@@ -109,7 +109,10 @@ async function runStuck() {
     assert.equal(result.stuck.feature, 'x')
     assert.match(result.stuck.reason, /범위 미지정 — 기록 전인 다른 기능\(held\)/)
     assert.equal(implemented, 2, '두 바퀴에서 멈춘다')
-    console.log('✓ 실행 2: 원장이 세지 않는 반복을 두 번째에 멈춘다')
+    assert.equal(result.report, '.harness/runs/report.md')
+    const report = readFileSync(join(project, result.report), 'utf8')
+    assert.match(report, /루프가 멈춤\(stuck\): x: gate → error 범위 미지정/, '멈춘 이유가 보고서의 이상 신호에 남는다')
+    console.log('✓ 실행 2: 원장이 세지 않는 반복을 두 번째에 멈춘다 · 보고서에 이유가 남는다')
   } finally {
     rmSync(project, { recursive: true, force: true })
   }

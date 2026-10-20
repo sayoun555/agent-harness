@@ -369,6 +369,9 @@ phase('Audit')
 const audit = await runHarness('feature audit --json', 'audit')
 const ledger = await runHarness(`feature list --json --fields ${SUMMARY_FIELDS}`, '원장')
 const features = Array.isArray(ledger) ? ledger : []
+// 사람이 읽는 보고서(기능별 문제와 해결 · 시간 · 이상 신호). 하네스가 trace 로 만든다 — 모델은 명령 하나만 실행한다.
+const stopNote = stuck ? ` --reason ${shellQuote(`${stuck.feature}: ${stuck.node} → ${stuck.result} ${stuck.reason || ''}`)}` : ''
+const report = await runHarness(`trace report --stop-reason ${stopReason}${stopNote} --json`, '보고서')
 const byStatus = (status) => features
   .filter((f) => f.status === status)
   .map((f) => ({ id: f.id, reason: f.lastFailure || '' }))
@@ -387,5 +390,6 @@ return {
   pending: byStatus('pending').map((f) => f.id),
   auditRegressions: audit && Array.isArray(audit.regressed) ? audit.regressed : [],
   mcpSuggestions,                                     // 사람: 설치할지 결정 (하네스는 설치하지 않는다)
+  report: report && report.path ? report.path : null, // 사람: 기능별 문제와 해결 · 시간 · 할 일
   steps,
 }

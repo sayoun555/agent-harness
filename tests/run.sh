@@ -63,6 +63,7 @@ CURRENT_TEST_FAILED=0
 fail() { printf '    ✗ %s\n' "$*"; CURRENT_TEST_FAILED=1; return 0; }
 assert_eq() { [[ "$1" == "$2" ]] || fail "기대 '$2', 실제 '$1' ${3:-}"; }
 assert_contains() { [[ "$1" == *"$2"* ]] || fail "'$2' 가 없다: ${1:0:300}"; }
+assert_not_contains() { [[ "$1" != *"$2"* ]] || fail "'$2' 가 있으면 안 된다"; }
 assert_exit() {  # assert_exit <expected> <command...>
   local expected="$1" actual=0; shift
   "$@" >/dev/null 2>&1 || actual=$?
@@ -426,6 +427,37 @@ test_trace_records_each_node() {
   h feature record sub >/dev/null 2>&1
   assert_eq "$(jq -r .event .harness/trace.jsonl | paste -sd, -)" "verify,review,record"
   assert_contains "$(h trace summary)" "record"
+}
+
+test_trace_report_documents_problems_and_fixes() {
+  local report=.harness/runs/report.md
+  add_feature sub "빼기" 'grep -q "sub" src/math.js'
+  add_feature mul "곱하기" 'grep -q "mul" src/math.js'
+  h prompt implement sub >/dev/null
+  h feature verify sub >/dev/null 2>&1
+  echo 'export const sub = (a, b) => a - b;' >> src/math.js
+  h feature verify sub >/dev/null 2>&1
+  h feature reject sub --reason "Q2 src/math.js:1 — 전이가 흩어짐" >/dev/null 2>&1
+  verify_and_review sub
+  h feature record sub >/dev/null 2>&1
+  assert_exit 0 h trace report
+  assert_contains "$(cat $report)" "### sub (지금: passing)"
+  assert_contains "$(cat $report)" "구현 시작(시도 1)"
+  assert_contains "$(cat $report)" "**문제** 게이트 실패(acceptance) → pending"
+  assert_contains "$(cat $report)" "**문제** 검토 반려 → pending: Q2 src/math.js:1"
+  assert_contains "$(cat $report)" "기록 → passing"
+  assert_contains "$(cat $report)" "| sub | 2 |"
+  assert_eq "$(git status --porcelain)" "" "(보고서는 무시되는 곳에 쓴다 — 커밋 운용의 사전 점검을 더럽히지 않는다)"
+
+  echo 'export const mul = (a, b) => a * b;' >> src/math.js
+  h feature verify mul >/dev/null 2>&1
+  h feature reject mul --reason "Q2 src/math.js:2 — 전이가 흩어짐" >/dev/null 2>&1
+  h feature reject mul --reason "REQ 곱셈 부호" >/dev/null 2>&1
+  assert_eq "$(h trace report --stop-reason stuck --reason "mul: gate → error" --json | jq -r .path)" "$report"
+  assert_contains "$(cat $report)" "| Q2 | 2 | mul, sub |"
+  assert_not_contains "$(cat $report)" "| REQ |"
+  assert_contains "$(cat $report)" "루프가 멈춤(stuck): mul: gate → error"
+  assert_eq "$(jq -r 'select(.event == "loop-end") | .result' .harness/trace.jsonl)" "stuck"
 }
 
 # ── init: 프로젝트 단위 플러그인 활성화 ─────────────────────────────

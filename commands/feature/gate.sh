@@ -64,8 +64,8 @@ cmd_verify() {
   reason="$FAILED_STEP 실패"
   status="$(record_failure "$id" "$reason" "$FAILED_DETAIL")"
   set_aside_if_blocked "$id" "$status"
-  trace_add verify "$(jq -cn --arg id "$id" --arg step "$FAILED_STEP" --arg status "$status" \
-    '{feature: $id, result: "fail", step: $step, status: $status}')"
+  trace_add verify "$(jq -cn --arg id "$id" --arg step "$FAILED_STEP" --arg status "$status" --arg detail "${FAILED_DETAIL:0:300}" \
+    '{feature: $id, result: "fail", step: $step, status: $status, detail: $detail}')"
   emit "$json_mode" "$(result_json "$id" fail "$reason" "$FAILED_DETAIL")" \
     "⛔ verify $id: $reason → $status"$'\n'"$FAILED_DETAIL"
   return "$EXIT_GATE_FAILED"

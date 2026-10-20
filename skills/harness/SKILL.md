@@ -105,6 +105,7 @@ test -f .harness/project.json && test -x .harness/bin/harness && echo plugged ||
    판단 필요가 있으면 질문을 먼저 보여 주고 답을 받는다.
    `stopReason` 이 `stuck` 이면 같은 기능이 진전 없이 같은 결과를 반복한 것이다. `stuck.reason` 을 그대로 보여 준다.
    "범위 미지정" 이면 6의 "다른 기능 때문에 멈췄을 때" 로 푼다.
+   `report` 경로(`.harness/runs/report.md`)를 알려 준다. 기능별 문제와 해결 · 시간 · 이상 신호가 들어 있다. 루프 없이 진행했으면 `.harness/bin/harness trace report` 로 만든다.
 
 ## 2B. 루프 없이 진행 ("루프는 안 써", "하나씩 해 줘")
 

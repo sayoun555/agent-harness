@@ -109,6 +109,7 @@ implement_prompt() {  # implement_prompt <id> <mode>
 remember_implementation_start() {  # remember_implementation_start <id> <mode>
   set_feature_fields "$1" "$(jq -cn --arg v "$(criteria_version)" --argjson ids "$(criteria_ids_json)" --arg mode "$2" \
     '{implementedUnder: {criteriaVersion: $v, criteriaIds: $ids, mode: $mode}}')"
+  trace_add implement "$(jq -cn --arg id "$1" --arg mode "$2" --argjson n "$(attempt_number "$1")" '{feature: $id, mode: $mode, attempt: $n}')"
 }
 
 # 구현 시점 기준과 지금 기준이 다르면 한 단락 (같으면 빈 출력)
