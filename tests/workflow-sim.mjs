@@ -23,10 +23,10 @@ const questions_cache = "Redis 와 메모리 캐시 중 무엇으로? ('it's' �
 
 
 // ── 임시 프로젝트 ──────────────────────────────────────────────────
-// 가짜 claude: `claude mcp list` 에 Playwright 가 연결된 것처럼 답한다 (실제 MCP 설정은 건드리지 않음)
+// 가짜 claude: `claude mcp list` 에 Playwright 가 연결된 것처럼 답한다 (실제 MCP 설정은 건드리지 않음). /usage 는 공통 가짜 답
 const FAKE_BIN = mkdtempSync(join(tmpdir(), 'fake-claude-'))
 writeFileSync(join(FAKE_BIN, 'claude'),
-  '#!/usr/bin/env bash\n[[ "$1 $2" == "mcp list" ]] && printf "%s\\n" "playwright: npx -y @playwright/mcp@latest - ✔ Connected" "figma: npx -y figma-developer-mcp --stdio - ✔ Connected"\n',
+  '#!/usr/bin/env bash\n' + FAKE_USAGE_ANSWER + '[[ "$1 $2" == "mcp list" ]] && printf "%s\\n" "playwright: npx -y @playwright/mcp@latest - ✔ Connected" "figma: npx -y figma-developer-mcp --stdio - ✔ Connected"\n',
   { mode: 0o755 })
 const ENV = { ...process.env, PATH: `${FAKE_BIN}${delimiter}${process.env.PATH}` }
 
@@ -111,7 +111,7 @@ function makeFakeAgent(project) {
 }
 
 // ── 워크플로우 로드 ────────────────────────────────────────────────
-import { loadWorkflow, fakeParallel, featureIdOf, followBootstrap, checklistVerdict, HARNESS } from './sim-helpers.mjs'
+import { loadWorkflow, fakeParallel, featureIdOf, followBootstrap, checklistVerdict, HARNESS, FAKE_USAGE_ANSWER } from './sim-helpers.mjs'
 
 
 // ── 실행 · 단언 ────────────────────────────────────────────────────

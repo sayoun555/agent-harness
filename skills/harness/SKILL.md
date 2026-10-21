@@ -105,6 +105,7 @@ test -f .harness/project.json && test -x .harness/bin/harness && echo plugged ||
    판단 필요가 있으면 질문을 먼저 보여 주고 답을 받는다.
    `stopReason` 이 `stuck` 이면 같은 기능이 진전 없이 같은 결과를 반복한 것이다. `stuck.reason` 을 그대로 보여 준다.
    "범위 미지정" 이면 6의 "다른 기능 때문에 멈췄을 때" 로 푼다.
+   `stopReason` 이 `usage-limit` 이면 요금제 사용량이 기준(`loop.usageStopPercent`, 기본 90%)을 넘어 다음 기능을 시작하지 않은 것이다. `usage` 를 보여 주고 한도가 풀린 뒤 다시 돌리라고 알린다. 루프 중 사용량은 진행 줄에 찍힌다. 루프 밖에서는 `.harness/bin/harness usage`.
    `report` 경로(`.harness/runs/report.md`)를 알려 준다. 기능별 문제와 해결 · 시간 · 이상 신호가 들어 있다. 루프 없이 진행했으면 `.harness/bin/harness trace report` 로 만든다.
 
 ## 2B. 루프 없이 진행 ("루프는 안 써", "하나씩 해 줘")

@@ -4,7 +4,7 @@
 import { spawnSync } from 'node:child_process'
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join, dirname } from 'node:path'
+import { join, dirname, delimiter } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
 export const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
@@ -12,7 +12,14 @@ export const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 export const bashPath = (path) => path.replaceAll('\\', '/')
 export const HARNESS = bashPath(join(ROOT, 'bin/harness'))
 
-export function sh(cwd, command, env = process.env) {
+// 가짜 claude: `claude -p /usage` 에 세션 FAKE_USAGE_PERCENT(기본 10)% 로 답한다.
+// 시뮬레이션이 이 기계의 실제 요금제 사용량에 흔들리지 않게 한다(실제 claude 를 부르지 않는다).
+export const FAKE_USAGE_ANSWER = 'if [[ "$1 $2" == "-p /usage" ]]; then printf \'{"result":"Current session: %s%% used · resets soon\\\\nCurrent week (all models): 5%% used · resets later"}\\n\' "${FAKE_USAGE_PERCENT:-10}"; fi\n'
+const FAKE_CLAUDE_BIN = mkdtempSync(join(tmpdir(), 'fake-claude-'))
+writeFileSync(join(FAKE_CLAUDE_BIN, 'claude'), `#!/usr/bin/env bash\n${FAKE_USAGE_ANSWER}`, { mode: 0o755 })
+export const SIM_ENV = { ...process.env, PATH: `${FAKE_CLAUDE_BIN}${delimiter}${process.env.PATH}` }
+
+export function sh(cwd, command, env = SIM_ENV) {
   return spawnSync('bash', ['-c', command], { cwd, encoding: 'utf8', env })
 }
 

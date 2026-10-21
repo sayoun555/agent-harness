@@ -91,7 +91,7 @@ build_report() {
         "",
         "## 하네스 이상 신호",
         "",
-        ( [ ($t[] | select(.event == "loop-end" and (.result == "stuck" or .result == "ledger-unreadable" or .result == "budget"))
+        ( [ ($t[] | select(.event == "loop-end" and (.result == "stuck" or .result == "ledger-unreadable" or .result == "budget" or .result == "usage-limit"))
               | "- \(.ts) 루프가 멈춤(\(.result))" + (if (.reason // "") != "" then ": \(.reason | cell)" else "" end)),
             ($t[] | select(.event == "preflight" and .result == "released-stale") | "- \(.ts) 끊긴 실행이 남긴 진행 중 표시를 풀었다: \(.features)"),
             ($t[] | select(.event == "loop-run" and .exitCode != 0) | "- \(.ts) 헤드리스 루프가 종료 코드 \(.exitCode) 로 끝남 (\(.log))") ]

@@ -334,8 +334,13 @@ phase('Loop')
 const steps = []
 let stopReason = 'max-iterations'
 let stuck = null
+let usage = null
 for (let iteration = 1; iteration <= MAX_ITERATIONS && !stuck; iteration++) {
   if (budget.total && budget.remaining() < BUDGET_FLOOR) { stopReason = 'budget'; break }
+  // 요금제 사용량(모델 호출 없음). 읽지 못하면 멈추지 않는다. 한도에 걸려 기능 중간에 끊기기 전에 멈춘다.
+  const read = await runHarness('usage --json', `사용량#${iteration}`)
+  usage = read && read.result === 'ok' ? read : null
+  if (usage && usage.stop) { stopReason = 'usage-limit'; break }
 
   // 선택 응답을 잃었거나 거부됐으면 할 일이 없는 것이 아니다 — 원장을 읽지 못한 것이다. 완료로 끝내지 않고 멈춘다.
   let outcomes
@@ -353,7 +358,7 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS && !stuck; iteration++) {
   for (const outcome of outcomes) {
     outcome.outputTokensSoFar = budget.spent()
     steps.push(outcome)
-    log(`[${iteration}/${MAX_ITERATIONS}] ${outcome.feature}: ${outcome.node} → ${outcome.result}`)
+    log(`[${iteration}/${MAX_ITERATIONS}] ${outcome.feature}: ${outcome.node} → ${outcome.result}${usage ? ` · 사용량 ${usage.summary}` : ''}`)
     if (!stuck && repeatsWithoutProgress(outcome)) stuck = outcome
   }
 }
@@ -362,6 +367,7 @@ if (stuck) {
   log(`${stuck.feature}: ${stuck.node} → ${stuck.result} 가 진전 없이 두 번 연속 — 루프를 멈춘다. ${stuck.reason}`)
 }
 if (stopReason === 'ledger-unreadable') log('다음 기능을 고르는 명령이 응답하지 않았다 — 완료가 아니다. 루프를 멈춘다.')
+if (stopReason === 'usage-limit') log(`요금제 사용량이 ${usage.stopPercent}% 를 넘었다(${usage.summary}) — 다음 기능을 시작하지 않는다. 한도가 풀린 뒤 다시 돌린다.`)
 if (stopReason === 'max-iterations') log(`최대 ${MAX_ITERATIONS}바퀴에 도달 — 남은 기능은 다음 실행에서 이어간다.`)
 
 currentPhase = 'Audit'
@@ -370,7 +376,9 @@ const audit = await runHarness('feature audit --json', 'audit')
 const ledger = await runHarness(`feature list --json --fields ${SUMMARY_FIELDS}`, '원장')
 const features = Array.isArray(ledger) ? ledger : []
 // 사람이 읽는 보고서(기능별 문제와 해결 · 시간 · 이상 신호). 하네스가 trace 로 만든다 — 모델은 명령 하나만 실행한다.
-const stopNote = stuck ? ` --reason ${shellQuote(`${stuck.feature}: ${stuck.node} → ${stuck.result} ${stuck.reason || ''}`)}` : ''
+const stopWhy = stuck ? `${stuck.feature}: ${stuck.node} → ${stuck.result} ${stuck.reason || ''}`
+  : stopReason === 'usage-limit' ? `${usage.summary} (기준 ${usage.stopPercent}%)` : ''
+const stopNote = stopWhy ? ` --reason ${shellQuote(stopWhy)}` : ''
 const report = await runHarness(`trace report --stop-reason ${stopReason}${stopNote} --json`, '보고서')
 const byStatus = (status) => features
   .filter((f) => f.status === status)
@@ -378,6 +386,7 @@ const byStatus = (status) => features
 
 return {
   stopReason,
+  usage: usage ? usage.summary : null,                // 마지막으로 읽은 요금제 사용량 (usage-limit 이면 한도가 풀린 뒤 다시)
   stuck: stuck ? { feature: stuck.feature, node: stuck.node, result: stuck.result, reason: stuck.reason } : null,  // 사람: 이유를 보고 claim · reset 등으로 푼다
   autoCommit: AUTO_COMMIT,
   iterations: steps.length,

@@ -10,6 +10,7 @@
 //         x 의 게이트는 소유권 검사에 거부된다(--json 이라 error 한 줄) → 원장이 세지 않는 반복
 //         같은 결과가 두 번 연속이면 루프를 멈춘다 (maxIterations 까지 돌지 않는다)
 // 실행 3  다음 기능을 고르는 명령의 응답을 잃었다 → 완료로 끝내지 않는다
+// 실행 4  요금제 사용량이 기준(90%)을 넘었다 → 다음 기능을 시작하지 않고 멈춘다. 이유가 보고서에 남는다
 
 import { mkdtempSync, writeFileSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -17,7 +18,7 @@ import { join } from 'node:path'
 import assert from 'node:assert/strict'
 import {
   makeProject, addFeature, loadWorkflow, fakeParallel, noBudget, runCommandNode, schemaKeys, mustRun, HARNESS,
-  featureIdOf, followBootstrap, checklistVerdict,
+  featureIdOf, followBootstrap, checklistVerdict, SIM_ENV,
 } from './sim-helpers.mjs'
 
 const LEDGER = { loop: { maxAttempts: 3, repeatLimit: 2, autoCommit: false } }
@@ -102,9 +103,11 @@ async function runStuck() {
   }
 
   try {
-    const run = await loadWorkflow({ agent, parallel: fakeParallel, phase: () => {}, log: () => {}, args: {}, budget: noBudget })
+    const logs = []
+    const run = await loadWorkflow({ agent, parallel: fakeParallel, phase: () => {}, log: (m) => logs.push(m), args: {}, budget: noBudget })
     const result = await run()
     assert.equal(result.stopReason, 'stuck')
+    assert.ok(logs.includes('[1/20] x: gate → error · 사용량 세션 10% · 주간(전체) 5%'), `진행 줄에 사용량이 붙는다: ${logs.join(' | ')}`)
     assert.deepEqual(result.steps.map((s) => `${s.iteration}:${s.feature}:${s.node}:${s.result}`), ['1:x:gate:error', '2:x:gate:error'])
     assert.equal(result.stuck.feature, 'x')
     assert.match(result.stuck.reason, /범위 미지정 — 기록 전인 다른 기능\(held\)/)
@@ -139,10 +142,35 @@ async function runLostSelection() {
   }
 }
 
+// ── 실행 4 ─────────────────────────────────────────────────────────
+async function runUsageLimit() {
+  const project = makeProject(LEDGER)
+  addFeature(project, 'a', '에이', 'true')
+  const env = { ...SIM_ENV, FAKE_USAGE_PERCENT: '95' }
+  async function agent(prompt, opts = {}) {
+    if (!schemaKeys(opts).includes('exitCode')) throw new Error(`구현까지 가면 안 된다: ${opts.label}`)
+    if (/feature next/.test(prompt)) throw new Error('사용량이 넘었으면 다음 기능을 고르지 않는다')
+    return runCommandNode(project, prompt, env)
+  }
+  try {
+    const run = await loadWorkflow({ agent, parallel: fakeParallel, phase: () => {}, log: () => {}, args: {}, budget: noBudget })
+    const result = await run()
+    assert.equal(result.stopReason, 'usage-limit')
+    assert.equal(result.usage, '세션 95% · 주간(전체) 5%')
+    assert.deepEqual(result.pending, ['a'])
+    const report = readFileSync(join(project, result.report), 'utf8')
+    assert.match(report, /루프가 멈춤\(usage-limit\): 세션 95% · 주간\(전체\) 5% \(기준 90%\)/)
+    console.log('✓ 실행 4: 요금제 사용량이 기준을 넘으면 다음 기능을 시작하지 않는다 · 보고서에 이유가 남는다')
+  } finally {
+    rmSync(project, { recursive: true, force: true })
+  }
+}
+
 try {
   await runRecovery()
   await runStuck()
   await runLostSelection()
+  await runUsageLimit()
 } finally {
   rmSync(elsewhere, { recursive: true, force: true })
 }

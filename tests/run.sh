@@ -534,6 +534,53 @@ recommend_playwright() {
 
 mcp_state() { jq -r '.[0].state' <<<"$1"; }
 
+# ── 요금제 사용량: claude /usage 를 읽는다 (모델 호출 없음) ─────────────
+# fake_usage_claude <result 글> [종료 코드] → `claude -p /usage` 에 그 글을 result 로 답하는 가짜 claude
+fake_usage_claude() {
+  local dir
+  dir="$(mktemp -d)"
+  jq -cn --arg r "$1" '{result: $r}' > "$dir/reply.json"
+  printf '#!/usr/bin/env bash\nprintf "%%s\\n" "$@" > "%s/args"\n[[ "$1 $2" == "-p /usage" ]] && cat "%s/reply.json"\nexit %s\n' "$dir" "$dir" "${2:-0}" > "$dir/claude"
+  chmod +x "$dir/claude"
+  printf '%s\n' "$dir"
+}
+
+SUBSCRIPTION_USAGE='You are currently using your subscription to power your Claude Code usage
+
+Current session: 93% used · resets Oct 21 at 7:20pm (Asia/Seoul)
+Current week (all models): 15% used · resets Oct 27 at 9pm (Asia/Seoul)'
+
+test_usage_reads_limits_and_stop_threshold() {
+  local bin out
+  bin="$(fake_usage_claude "$SUBSCRIPTION_USAGE")"
+  out="$(PATH="$bin:$PATH" h usage --json)"
+  assert_eq "$(jq -r '.result' <<<"$out")" "ok"
+  assert_eq "$(jq -r '.summary' <<<"$out")" "세션 93% · 주간(전체) 15%"
+  assert_eq "$(jq -r '.highest' <<<"$out")" "93"
+  assert_eq "$(jq -r '.stop' <<<"$out")" "true" "(기본 기준 90%)"
+  assert_eq "$(jq -r '.limits[0].resets' <<<"$out")" "Oct 21 at 7:20pm (Asia/Seoul)"
+  assert_contains "$(cat "$bin/args")" "--no-session-persistence" "(세션을 남기지 않는다)"
+}
+
+test_usage_stop_threshold_is_configurable() {
+  local bin
+  bin="$(fake_usage_claude "$SUBSCRIPTION_USAGE")"
+  jq '.loop.usageStopPercent = 95' .harness/project.json > p && mv p .harness/project.json
+  assert_eq "$(PATH="$bin:$PATH" h usage --json | jq -r '.stop')" "false" "(93% < 95%)"
+  jq '.loop.usageStopPercent = 0' .harness/project.json > p && mv p .harness/project.json
+  assert_eq "$(PATH="$bin:$PATH" h usage --json | jq -r '.stop')" "false" "(0 이면 끔)"
+}
+
+test_usage_unavailable_never_stops() {
+  local bin
+  assert_eq "$(PATH="$(path_without_extras)" h usage --json | jq -r '.result')" "unavailable" "(claude 없음)"
+  bin="$(fake_usage_claude 'Claude Code is using an API key')"
+  assert_eq "$(PATH="$bin:$PATH" h usage --json | jq -r '.result')" "unavailable" "(구독이 아님)"
+  bin="$(fake_usage_claude "$SUBSCRIPTION_USAGE" 1)"
+  assert_eq "$(PATH="$bin:$PATH" h usage --json | jq -r '.result')" "unavailable" "(claude 실패)"
+  assert_contains "$(PATH="$bin:$PATH" h usage)" "사용량을 읽지 못했다"
+}
+
 test_mcp_reports_connected() {
   recommend_playwright
   local bin out
