@@ -27,6 +27,7 @@
 | `trace` | 노드마다 한 줄 JSONL. 반복 감지·비용·부품 빼 보기 실험의 원천 | — |
 | `trace report` | trace 와 원장으로 사람이 읽는 보고서(`.harness/runs/report.md`): 기능별 문제와 해결, 처음 통과까지 시간 · 반려 수, 기능을 넘어 반복된 품질 기준, 하네스 이상 신호, 사람이 할 일. 루프가 끝날 때 만든다. 모델 호출 없음 | — |
 | `feature-loop` | 위 부품을 잇는 제한 루프 워크플로우. 순차 또는 병렬. 원장이 세지 않는 같은 결과(명령 거부 · 응답 없음)가 두 번 연속이면 `stuck` 으로 멈춘다 | 멈춤 |
+| `permissions` | 루프가 셸 명령마다 묻고 멈추지 않도록 Claude Code 허용 규칙을 `.claude/settings.local.json` 에 넣는다(커밋 안 함). 하네스 자신과 `build.compileCommand` · `testCommand` 만 넣는다. `init` 이 하고, 빌드 명령을 바꾼 뒤에는 사람이 다시 실행한다. 원장의 acceptance 와 루프 안 자동 갱신은 일부러 뺐다 — 에이전트가 쓸 수 있는 값이라, 넣으면 에이전트가 제 권한을 넓히는 길이 된다 | — |
 | `usage` | 요금제 사용량(세션 · 주간 한도)을 Claude Code 의 `/usage` 로 읽는다(모델 호출 없음, 약 3초). 루프는 바퀴마다 진행 줄에 찍고, 기준(`loop.usageStopPercent`, 기본 90%)을 넘으면 다음 기능을 시작하지 않는다. 구독이 아니거나 읽지 못하면 그대로 돈다 | 멈춤 |
 | `loop` | 사람 없이 루프 실행(할 일이 없으면 토큰 0), cron 줄 출력, GitHub 트리거 템플릿 | — |
 | `mcp` | 프리셋이 권하는 MCP 의 연결 여부 확인 (설치하지 않음) | — |
@@ -238,6 +239,7 @@ GitHub 트리거는 main 에 직접 커밋하지 않고 PR 을 연다. 사람이
 | 검증 뒤에 손으로 고친 기능 | "검증 끝난 뒤 바뀐 거 있어?" | `harness feature drift` (`--reopen` 이면 다시 대기열로) |
 | "범위 미지정" 으로 멈춤 (같은 트리에 기록 전인 다른 기능) | "하나씩 해 줘" | 커밋 없이 운용하면 멈춘 기능에 `harness feature claim ID --files a,b` (verified · reviewed 에서도 됨). 막고 있는 기능이 끊긴 것이면 `harness feature reset 그ID` (커밋 운용은 이쪽만) |
 | 루프가 `stuck` 으로 멈춤 (같은 결과가 진전 없이 두 번) | "왜 멈췄어?" | 결과의 `stuck.reason` 을 보고 위 방법으로 푼다 |
+| 루프가 명령 권한 확인에서 자꾸 멈춤 | "권한 때문에 멈춰" | 빌드 명령을 바꿨으면 `! .harness/bin/harness permissions`. 에이전트가 그때그때 치는 명령(mv · sed -i 등)은 규칙으로 미리 알 수 없어, 루프를 자동 모드(Shift+Tab)로 돌린다. 사용자 설정의 `ask` 규칙(예: `Bash(rm *)`)은 자동 모드에서도 묻는다 |
 | 루프가 `usage-limit` 으로 멈춤 (요금제 사용량이 기준을 넘음) | "사용량 얼마나 남았어?" | `harness usage` 로 보고 한도가 풀린 뒤 다시 돌린다. 기준은 `loop.usageStopPercent`(0 이면 끔) |
 
 ## 다른 도구
@@ -257,7 +259,7 @@ GitHub 트리거는 main 에 직접 커밋하지 않고 PR 을 연다. 사람이
 ## 테스트
 
 ```bash
-bash tests/run.sh                     # 결정론 부품 185개
+bash tests/run.sh                     # 결정론 부품 189개
 node tests/workflow-sim.mjs           # 루프 그래프: LLM 만 가짜, 하네스 명령은 실제 실행
 node tests/workflow-sim-parallel.mjs  # 병렬 분기: 실제 git 워크트리, 충돌 포함
 node tests/workflow-sim-ledger.mjs    # 커밋 없는 운용: 커밋 0개 저장소, 같은 트리 병렬, 커밋·ref 0개 확인

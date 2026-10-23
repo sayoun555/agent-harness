@@ -2,7 +2,7 @@
 #
 # harness init — 이 프로젝트에 하네스를 끼운다. 여러 번 실행해도 안전하다(있는 파일은 건드리지 않음).
 #
-#   harness init [--preset 이름] [--addons a,b] [--local] [--no-commit] [--no-plugin] [--no-git-hooks] [--ci] [--ci-loop] [--codex]
+#   harness init [--preset 이름] [--addons a,b] [--local] [--no-commit] [--no-plugin] [--no-permissions] [--no-git-hooks] [--ci] [--ci-loop] [--codex]
 #
 #   --preset     스택 하나 (android · spring · nextjs · generic). 없으면 빌드 파일로 감지한다
 #   --addons     함께 쓰는 서비스 · 인프라 (supabase · terraform). 없으면 저장소 파일로 감지한다. 빈 값이면 쓰지 않는다
@@ -15,6 +15,7 @@
 #     .harness/features.json   기능 원장                                  ← 커밋
 #     .harness/bin/harness     이 머신의 하네스를 가리키는 shim           ← gitignore
 #     .claude/settings.json    이 프로젝트에서만 플러그인을 켠다 (--no-plugin 으로 끔)  ← 커밋
+#     .claude/settings.local.json  하네스 · 빌드 명령 허용 규칙 (--no-permissions 로 끔)  ← 커밋 안 함
 #     git core.hooksPath       pre-commit·pre-push 게이트 (--no-git-hooks 로 끔)
 #     .github/workflows/harness-gate.yml   CI 백스톱 (--ci)
 #     .github/workflows/harness-loop.yml   일정·원장 변경 때 루프를 돌려 PR 로 (--ci-loop)
@@ -25,6 +26,7 @@ source "$HARNESS_HOME/lib/common.sh"
 source "$HARNESS_HOME/lib/shim.sh"
 source "$HARNESS_HOME/lib/mcp.sh"
 source "$HARNESS_HOME/lib/agents.sh"
+source "$HARNESS_HOME/lib/permissions.sh"
 require_commands git jq
 
 readonly MARKETPLACE_NAME="agent-harness"
@@ -36,6 +38,7 @@ ADDONS_GIVEN=0
 LOCAL_ONLY=0
 NO_COMMIT=0
 WANT_PLUGIN=1
+WANT_PERMISSIONS=1
 WANT_GIT_HOOKS=1
 WANT_CI=0
 WANT_CI_LOOP=0
@@ -49,6 +52,7 @@ parse_args() {
       --local)        LOCAL_ONLY=1 ;;
       --no-commit)    NO_COMMIT=1 ;;
       --no-plugin)    WANT_PLUGIN=0 ;;
+      --no-permissions) WANT_PERMISSIONS=0 ;;
       --no-git-hooks) WANT_GIT_HOOKS=0 ;;
       --ci)           WANT_CI=1 ;;
       --ci-loop)      WANT_CI_LOOP=1 ;;
@@ -201,6 +205,18 @@ enable_plugin_for_project() {
   info "✅ $(relative_to_root "$settings") — 이 프로젝트에서만 $HARNESS_PLUGIN_ID 활성화"
 }
 
+# 루프가 하네스 · 빌드 명령마다 사람에게 묻고 멈추지 않게 한다. 이 머신에만 남는다(커밋하지 않음).
+allow_harness_commands() {
+  [[ "$WANT_PERMISSIONS" -eq 1 ]] || return 0
+  local result
+  result="$(permissions_sync)"
+  if [[ "$(jq -r .result <<<"$result")" == tracked ]]; then
+    info "ℹ️  .claude/settings.local.json 이 커밋돼 있어 허용 규칙을 넣지 않는다 (harness permissions 참고)"
+  else
+    info "✅ .claude/settings.local.json — 허용 규칙 $(jq '.added | length' <<<"$result")개 추가 (하네스 · 빌드 명령)"
+  fi
+}
+
 install_git_hooks() {
   [[ "$WANT_GIT_HOOKS" -eq 1 ]] || return 0
   local current
@@ -275,6 +291,7 @@ main() {
   create_shim
   ensure_ignored
   enable_plugin_for_project
+  allow_harness_commands
   install_git_hooks
   install_ci
   install_ci_loop

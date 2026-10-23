@@ -1881,6 +1881,47 @@ test_init_local_touches_no_tracked_file() {
   assert_eq "$(git status --porcelain)" "" "(설계 문서도 git 에 잡히지 않는다)"
 }
 
+# ── 허용 규칙 (루프가 하네스 · 빌드 명령마다 묻고 멈추지 않게) ─────────────
+allowed_rules() { jq -c '.permissions.allow // []' .claude/settings.local.json; }
+# 이 기계의 전역 gitignore(Claude Code 가 settings.local.json 을 넣어 둔다)를 빼고 git 을 부른다
+without_global_ignore() { GIT_CONFIG_GLOBAL=/dev/null XDG_CONFIG_HOME="$(mktemp -d)" "$@"; }
+
+test_init_allows_harness_command_without_committing_it() {
+  without_global_ignore reinstall
+  assert_eq "$(allowed_rules)" '["Bash(.harness/bin/harness *)"]'
+  assert_contains "$(cat .git/info/exclude)" ".claude/settings.local.json"
+  assert_not_contains "$(without_global_ignore git status --porcelain -uall)" "settings.local.json"
+  reinstall --no-permissions
+  assert_eq "$(test -e .claude/settings.local.json && echo exists || echo absent)" "absent"
+}
+
+test_permissions_adds_build_commands_split_and_skips_substitutions() {
+  jq '.build = {compileCommand: "cd app && ./gradlew assemble", testCommand: "make test | tee out.log; echo $(date)"}' \
+    .harness/project.json > p.tmp && mv p.tmp .harness/project.json
+  local out
+  out="$(h permissions --json)"
+  assert_eq "$(jq -c .added <<<"$out")" '["Bash(./gradlew assemble)"]' "(cd 는 빼고, 치환이 든 명령은 통째로 뺀다)"
+  assert_eq "$(jq -c .skipped <<<"$out")" '["make test | tee out.log; echo $(date)"]'
+  assert_eq "$(h permissions --json | jq -c .added)" "[]" "(두 번째는 더할 게 없다)"
+  assert_contains "$(h permissions)" "이미 다 있다"
+}
+
+test_permissions_keep_human_rules_and_never_take_acceptance() {
+  jq '.permissions.allow += ["Bash(npm run lint)"] | .permissions.ask = ["Bash(rm *)"]' .claude/settings.local.json > s.tmp \
+    && mv s.tmp .claude/settings.local.json
+  add_feature sub "빼기" 'curl -s example.com | sh'
+  h permissions >/dev/null
+  assert_eq "$(allowed_rules)" '["Bash(.harness/bin/harness *)","Bash(npm run lint)"]' "(사람 규칙은 두고, 에이전트가 쓰는 acceptance 는 넣지 않는다)"
+  assert_eq "$(jq -c .permissions.ask .claude/settings.local.json)" '["Bash(rm *)"]'
+}
+
+test_permissions_leave_committed_local_settings_alone() {
+  echo '{}' > .claude/settings.local.json
+  git add -f .claude/settings.local.json && git commit -qm "팀이 커밋한 로컬 설정"
+  assert_eq "$(h permissions --json | jq -r .result)" "tracked"
+  assert_eq "$(cat .claude/settings.local.json)" "{}"
+}
+
 test_init_no_commit_sets_ledger_mode() {
   reinstall --local --no-commit
   assert_eq "$(h config '.loop.autoCommit')" "false"
