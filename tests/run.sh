@@ -321,6 +321,104 @@ test_approve_refuses_dirty_tree() {
   assert_eq "$(status_of pay)" "awaiting-approval"
 }
 
+# ── 앞 기능(dependsOn)과 원장 관리 (현장 보고 H2 · H7) ─────────────────
+add_dependent() { h feature add --id "$1" --desc "$2" --acceptance "$3" --depends-on "$4" >/dev/null 2>&1; git add -A; git commit -qm "add $1"; }
+ids_in_order() { jq -r '[.features[].id] | join(" ")' .harness/features.json; }
+
+test_next_waits_until_dependency_is_recorded() {
+  add_feature pay "결제" 'test -f src/payment.js'
+  add_dependent receipt "영수증" 'test -f src/receipt.js' pay
+  h feature move receipt --first >/dev/null
+  echo 'export const pay = () => true;' > src/payment.js
+  verify_and_review pay; h feature record pay >/dev/null 2>&1
+  assert_eq "$(status_of pay)" "awaiting-approval"
+  assert_eq "$(h feature next)" "" "(앞 기능이 승인 대기면 그 변경 없이 구현하지 않는다)"
+  assert_eq "$(h feature next --json --limit 2)" "[]"
+  h trace report >/dev/null 2>&1
+  assert_contains "$(cat .harness/runs/report.md)" "- 대기: receipt ← pay(awaiting-approval)"
+  h feature approve pay >/dev/null 2>&1
+  assert_eq "$(h feature next)" "receipt"
+}
+
+test_dependencies_are_validated() {
+  add_feature a "에이" 'true'
+  assert_exit 2 h feature add --id b --desc 비 --acceptance true --depends-on nope
+  assert_exit 2 h feature edit a --depends-on a
+  add_dependent b "비" 'true' a
+  assert_contains "$(h feature edit a --depends-on b 2>&1)" "순환 의존이 된다"
+  assert_exit 0 h feature edit b --depends-on ''
+  assert_eq "$(field_of b dependsOn)" "null" "(빈 값이면 지운다)"
+}
+
+test_edit_reopens_judged_feature_and_keeps_passing_definition() {
+  add_feature sub "빼기" 'true'
+  echo 'export const sub = (a, b) => a - b;' >> src/math.js
+  h feature verify sub >/dev/null 2>&1
+  assert_eq "$(status_of sub)" "verified"
+  h feature edit sub --acceptance 'grep -q "const sub" src/math.js' --design docs/sub.md >/dev/null
+  assert_eq "$(status_of sub)" "pending" "(완료 기준이 바뀌면 게이트부터 다시)"
+  assert_contains "$(field_of sub lastFailure)" "완료 기준"
+  h feature edit sub --design '' >/dev/null
+  assert_eq "$(field_of sub designDoc)" "null"
+  verify_and_review sub; h feature record sub >/dev/null 2>&1
+  assert_exit 2 h feature edit sub --desc "다른 뜻"
+  assert_exit 0 h feature edit sub --depends-on ''
+}
+
+test_remove_refuses_dependents_and_work_in_progress() {
+  add_feature a "에이" 'true'
+  add_dependent b "비" 'true' a
+  assert_contains "$(h feature remove a 2>&1)" "b 이(가) a 에 의존한다"
+  h feature start b >/dev/null
+  assert_contains "$(h feature remove b 2>&1)" "진행 중"
+  h feature reset b >/dev/null
+  assert_exit 0 h feature remove b
+  assert_eq "$(ids_in_order)" "a"
+}
+
+test_move_reorders_queue() {
+  add_feature a "에이" 'true'; add_feature b "비" 'true'; add_feature c "씨" 'true'
+  h feature move c --first >/dev/null;    assert_eq "$(ids_in_order)" "c a b"
+  h feature move c --after b >/dev/null;  assert_eq "$(ids_in_order)" "a b c"
+  h feature move a --before c >/dev/null; assert_eq "$(ids_in_order)" "b a c"
+  h feature move b --last >/dev/null;     assert_eq "$(ids_in_order)" "a c b"
+  assert_exit 2 h feature move a --before a
+}
+
+# ── 읽기와 시작을 나눈다 (현장 보고 H6) ────────────────────────────────
+test_prompt_implement_only_reads_and_start_marks() {
+  add_feature sub "빼기" 'true'
+  local before
+  before="$(cat .harness/features.json)"
+  h prompt implement sub >/dev/null; h feature brief sub >/dev/null
+  assert_eq "$(cat .harness/features.json)" "$before" "(지시문을 보는 것만으로 기능이 잡히지 않는다)"
+  assert_eq "$(h feature start sub)" "$(h prompt implement sub)" "(같은 지시문)"
+  assert_eq "$(jq -r '.features[0].implementedUnder.mode' .harness/features.json)" "sequential"
+}
+
+# ── 루프 끝 원장 커밋 (현장 보고 H8) ───────────────────────────────────
+test_loop_end_commits_only_the_ledger() {
+  add_feature a "에이" 'true'
+  h feature edit a --desc "바뀐 설명" >/dev/null
+  echo '// 사람이 고치던 것' >> src/math.js
+  local out
+  out="$(h trace report --stop-reason all-done --json)"
+  assert_eq "$(jq -r '.ledgerCommit | type' <<<"$out")" "string"
+  assert_eq "$(git show --name-only --format= HEAD)" ".harness/features.json" "(다른 파일은 담지 않는다)"
+  assert_contains "$(git log -1 --format=%s)" "루프 종료(all-done)"
+  assert_contains "$(git status --porcelain)" "src/math.js"
+  assert_eq "$(h trace report --stop-reason all-done --json | jq -r .ledgerCommit)" "null" "(바뀐 게 없으면 커밋하지 않는다)"
+  assert_eq "$(h trace report --json | jq -r .ledgerCommit)" "null"
+}
+
+test_loop_end_does_not_commit_without_auto_commit() {
+  jq '.loop.autoCommit = false' .harness/project.json > p.tmp && mv p.tmp .harness/project.json && git commit -qam "커밋 없이"
+  add_feature a "에이" 'true'
+  h feature edit a --desc "바뀐 설명" >/dev/null
+  assert_eq "$(h trace report --stop-reason all-done --json | jq -r .ledgerCommit)" "null"
+  assert_contains "$(git status --porcelain)" "features.json"
+}
+
 # ── 판단 요청 ───────────────────────────────────────────────────────
 test_ask_moves_feature_to_needs_decision() {
   add_feature cache "캐싱" 'true'
@@ -433,7 +531,7 @@ test_trace_report_documents_problems_and_fixes() {
   local report=.harness/runs/report.md
   add_feature sub "빼기" 'grep -q "sub" src/math.js'
   add_feature mul "곱하기" 'grep -q "mul" src/math.js'
-  h prompt implement sub >/dev/null
+  h feature start sub >/dev/null
   h feature verify sub >/dev/null 2>&1
   echo 'export const sub = (a, b) => a - b;' >> src/math.js
   h feature verify sub >/dev/null 2>&1
@@ -1338,6 +1436,16 @@ test_criteria_add_requires_title_and_rule() {
   assert_exit 2 h criteria add --title "제목만"
 }
 
+test_criteria_show_prints_only_selected_items() {
+  local out
+  out="$(h criteria show Q3)"
+  assert_contains "$out" "## Q3. 동시성 전략은 하나"
+  assert_eq "$(grep -c '^## ' <<<"$out")" "1" "(그 항목만)"
+  assert_eq "$(h criteria show Q1 Q3 | grep -c '^## ')" "2"
+  assert_contains "$(h criteria show Z9 2>&1)" "검증 기준에 없다: Z9"
+  assert_contains "$(h criteria show)" "## Q1."
+}
+
 # ── 표준 프롬프트 ───────────────────────────────────────────────────
 test_prompt_implement_carries_everything_useful() {
   h feature add --id cache --desc "캐싱" --acceptance false --design docs/design/c.md \
@@ -1427,8 +1535,8 @@ test_unscoped_feature_stops_when_another_is_in_this_tree() {
   add_feature a "에이" 'true'
   add_feature b "비" 'true'
   h feature preflight >/dev/null 2>&1
-  h prompt implement a >/dev/null; echo 'a' > src/a.js
-  h prompt implement b >/dev/null; echo 'pay' > src/payment.js
+  h feature start a >/dev/null; echo 'a' > src/a.js
+  h feature start b >/dev/null; echo 'pay' > src/payment.js
   assert_exit 2 h feature verify a   # b 가 같은 트리에서 구현 중이다
   assert_contains "$(h feature verify a 2>&1)" "범위 미지정 — 기록 전인 다른 기능(b)"
   assert_eq "$(status_of a)" "pending"
@@ -1502,9 +1610,9 @@ pass_b_then_start_a_on_its_file() {
   add_feature b "비" 'grep -q "const b" src/math.js'
   add_feature a "에이" 'grep -q "const a" src/math.js'
   h feature preflight >/dev/null 2>&1
-  h prompt implement b >/dev/null; echo 'export const b = 1;' >> src/math.js
+  h feature start b >/dev/null; echo 'export const b = 1;' >> src/math.js
   pass_feature b
-  h prompt implement a >/dev/null; echo 'export const a = 1;' >> src/math.js
+  h feature start a >/dev/null; echo 'export const a = 1;' >> src/math.js
 }
 
 test_drift_waits_for_in_flight_feature() {
@@ -1525,7 +1633,7 @@ test_drift_skips_only_files_claimed_by_in_flight_feature() {
   h feature preflight >/dev/null 2>&1
   echo 'b' > src/b.js; echo '// b' >> src/math.js
   pass_feature b
-  h prompt implement a >/dev/null; echo '// a' >> src/math.js
+  h feature start a >/dev/null; echo '// a' >> src/math.js
   h feature claim a --files src/math.js >/dev/null
   echo '// 손질' >> src/b.js   # 어떤 기능도 맡지 않은 변경
   assert_contains "$(h feature drift)" "- b: src/b.js"
@@ -1538,7 +1646,7 @@ test_drift_reopen_clears_implementation_mark() {
   h feature preflight >/dev/null 2>&1
   assert_eq "$(status_of b)" "pending"
   assert_eq "$(field_of b implementedUnder)" "null" "(다시 연 기능은 진행 중이 아니다)"
-  h prompt implement a >/dev/null
+  h feature start a >/dev/null
   assert_exit 0 h feature verify a   # 다시 연 b 가 a 를 막지 않는다
 }
 
@@ -1547,9 +1655,9 @@ test_reviewed_feature_claims_scope_to_get_unstuck() {
   add_feature a "에이" 'true'
   add_feature c "씨" 'true'
   h feature preflight >/dev/null 2>&1
-  h prompt implement a >/dev/null; echo 'a' > src/a.js
+  h feature start a >/dev/null; echo 'a' > src/a.js
   verify_and_review a
-  h prompt implement c >/dev/null; echo 'c' > src/c.js
+  h feature start c >/dev/null; echo 'c' > src/c.js
   assert_exit 2 h feature record a
   assert_eq "$(h feature claim a --files src/a.js --json | jq -r .status)" "pending" "(범위가 바뀌어 게이트부터 다시)"
   assert_eq "$(field_of a lastFailure)" "범위 지정 — reviewed 때 본 변경과 범위가 달라 게이트부터 다시"
@@ -1572,9 +1680,9 @@ test_reset_releases_in_flight_feature_without_touching_tree() {
   add_feature a "에이" 'true'
   add_feature c "씨" 'true'
   h feature preflight >/dev/null 2>&1
-  h prompt implement a >/dev/null; echo 'a' > src/a.js
+  h feature start a >/dev/null; echo 'a' > src/a.js
   verify_and_review a
-  h prompt implement c >/dev/null   # c 가 구현을 시작했다가 끊겼다 (변경 없음)
+  h feature start c >/dev/null   # c 가 구현을 시작했다가 끊겼다 (변경 없음)
   assert_exit 2 h feature record a
   assert_exit 0 h feature reset c
   assert_eq "$(field_of c implementedUnder)" "null"
@@ -1589,8 +1697,8 @@ test_ask_does_not_park_changes_of_another_feature() {
   add_feature a "에이" 'true'
   add_feature d "디" 'true'
   h feature preflight >/dev/null 2>&1
-  h prompt implement a >/dev/null; echo 'a' > src/a.js
-  h prompt implement d >/dev/null
+  h feature start a >/dev/null; echo 'a' > src/a.js
+  h feature start d >/dev/null
   assert_exit 2 h feature ask d --question '어느 쪽?'   # 범위 없이 보관하면 a 의 변경까지 치운다
   assert_eq "$(cat src/a.js)" "a"
   assert_eq "$(status_of d)" "pending"
@@ -1611,7 +1719,7 @@ test_parked_feature_releases_its_scope() {
   add_feature pay "결제" 'true'
   add_feature b "비" 'true'
   h feature preflight >/dev/null 2>&1
-  h prompt implement pay >/dev/null; echo 'p' > src/payment.js; echo 's' > src/shared.js
+  h feature start pay >/dev/null; echo 'p' > src/payment.js; echo 's' > src/shared.js
   h feature claim pay --files src/payment.js,src/shared.js >/dev/null
   verify_and_review pay
   h feature record pay >/dev/null 2>&1
@@ -1627,7 +1735,7 @@ test_commit_mode_preflight_ignores_ledger_only_changes() {
   jq '.loop.maxAttempts = 1' .harness/project.json > p && mv p .harness/project.json
   git add -A; git commit -qm config
   add_feature bad "나쁨" 'false'
-  h prompt implement bad >/dev/null; echo 'x' > src/bad.js
+  h feature start bad >/dev/null; echo 'x' > src/bad.js
   h feature verify bad >/dev/null 2>&1
   assert_eq "$(status_of bad)" "blocked"
   assert_eq "$(git status --porcelain)" " M .harness/features.json" "(막힌 기능은 원장만 바꿔 둔다)"
@@ -1639,14 +1747,14 @@ test_commit_mode_preflight_ignores_ledger_only_changes() {
 test_commit_mode_preflight_releases_stale_in_flight_marks() {
   add_feature a "에이" 'true'
   add_feature b "비" 'true'
-  h prompt implement a >/dev/null; echo 'a' > src/a.js
+  h feature start a >/dev/null; echo 'a' > src/a.js
   h feature verify a >/dev/null 2>&1
-  h prompt implement b >/dev/null
+  h feature start b >/dev/null
   git stash push -u -q -- . ':(exclude).harness'   # 끊긴 실행의 변경을 사람이 치웠다
   h feature preflight >/dev/null 2>&1
   assert_eq "$(status_of a)" "pending" "(verified 인데 볼 변경이 없다 — 다시 구현)"
   assert_eq "$(field_of a implementedUnder)$(field_of b implementedUnder)" "nullnull"
-  h prompt implement b >/dev/null; echo 'b' > src/b.js
+  h feature start b >/dev/null; echo 'b' > src/b.js
   assert_exit 0 h feature verify b   # 남은 표시가 b 를 막지 않는다
 }
 
@@ -1655,7 +1763,7 @@ test_json_mode_reports_refusal_on_stdout() {
   add_feature a "에이" 'true'
   add_feature c "씨" 'true'
   h feature preflight >/dev/null 2>&1
-  h prompt implement a >/dev/null; h prompt implement c >/dev/null
+  h feature start a >/dev/null; h feature start c >/dev/null
   local out
   out="$(h feature verify a --json 2>/dev/null)"
   assert_eq "$(jq -r .result <<<"$out")" "error"
@@ -1671,14 +1779,14 @@ test_reopened_feature_records_reverification_without_new_change() {
   add_feature b "비" 'true'
   add_feature c "씨" 'true'
   h feature preflight >/dev/null 2>&1
-  h prompt implement b >/dev/null; echo 'b' > src/b.js
+  h feature start b >/dev/null; echo 'b' > src/b.js
   pass_feature b
   echo '// 손질' >> src/b.js          # 손 수정 → b 가 다시 열린다
   h feature preflight >/dev/null 2>&1
   assert_eq "$(status_of b)" "pending"
-  h prompt implement c >/dev/null; echo 'c' > src/c.js
+  h feature start c >/dev/null; echo 'c' > src/c.js
   pass_feature c                      # 범위 없이 기록 → 기준선에 손 수정까지 들어간다
-  h prompt implement b >/dev/null     # 다시 구현했지만 바꿀 것이 없다
+  h feature start b >/dev/null     # 다시 구현했지만 바꿀 것이 없다
   verify_and_review b
   assert_exit 0 h feature record b
   assert_eq "$(status_of b)" "passing"
@@ -1797,7 +1905,7 @@ test_runtime_lens_is_off_by_default() {
 # ── 기준 버전 ───────────────────────────────────────────────────────
 test_review_warns_when_criteria_changed_after_implementation() {
   add_feature sub "빼기" 'true'
-  h prompt implement sub >/dev/null
+  h feature start sub >/dev/null
   assert_eq "$(jq -r '.features[0].implementedUnder.criteriaIds | length' .harness/features.json)" "9" "(Q1~Q9)"
   assert_eq "$(h prompt review sub | grep -c '기준이 다르다' || true)" "0" "(기준이 그대로면 알리지 않는다)"
   h criteria add --title "같은 정보를 두 번 담지 않는다" --rule "한 값은 한 필드에만" >/dev/null

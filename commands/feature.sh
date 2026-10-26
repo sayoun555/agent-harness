@@ -4,8 +4,11 @@
 #
 #   조회     list [--json] · next [--json] [--limit N] · status [--json]   (--json 에 --fields a,b 면 그 필드만)
 #            show ID [--fields a,b]                                 기능 하나 (JSON 한 줄)
-#            brief ID [--mode M] [--json]                           harness prompt implement 와 같다
-#   준비     add --id ID --desc 설명 --acceptance 명령 [--design 문서] [--decisions-json JSON]
+#            brief ID [--mode M] [--json]                           harness prompt implement 와 같다 (읽기만)
+#   준비     add --id ID --desc 설명 --acceptance 명령 [--design 문서] [--decisions-json JSON] [--depends-on a,b]
+#            edit ID [--desc] [--acceptance] [--design] [--figma] [--depends-on a,b]   등록한 기능 고치기 (원장은 직접 편집 금지)
+#            remove ID · move ID (--before ID | --after ID | --first | --last)
+#            start ID [--mode M] [--json]                          구현 시작: 구현 프롬프트 + 진행 중 표시 (구현자가 실행)
 #            claim ID --files 경로,경로                            같은 트리에서 기능이 맡은 파일 (범위에 더한다)
 #            preflight [--json]                                    시작 전 점검 (커밋 없이 운용하면 기준선 저장)
 #   판정     verify ID [--json]                                    컴파일 → 포맷 → 테스트 약화 → acceptance (→ 실행 렌즈). 통과면 verified
@@ -20,7 +23,7 @@
 #   사람     ask ID --question 질문 · decide ID --answer 답
 #            reset ID                                              통과 전 기능을 대기열 처음으로 (작업 트리는 그대로)
 #
-#   상태: pending → verified → reviewed → passing
+#   상태: pending → verified → reviewed → passing   (dependsOn 의 앞 기능이 모두 passing 이어야 고른다)
 #         막힘(blocked) · 승인 대기(awaiting-approval) · 판단 대기(needs-decision) 로 떠나는 기능의 변경은
 #         치워서 보관한다. 커밋 운용이면 harness/<ID> 브랜치, 아니면 .harness/parked/<ID>.patch.
 #
@@ -42,7 +45,7 @@ source "$HARNESS_HOME/lib/verdict.sh"
 source "$HARNESS_HOME/lib/prompts.sh"
 source "$HARNESS_HOME/lib/drift.sh"
 source "$HARNESS_HOME/lib/runtime.sh"
-for part in query prepare gate record human; do
+for part in query prepare manage gate record human; do
   source "$HARNESS_HOME/commands/feature/$part.sh"
 done
 require_commands git jq "$SHA1_COMMAND"
@@ -53,9 +56,9 @@ main() {
   local sub="${1:-}"; shift || true
   case "$sub" in
     list|next|status|show) require_features_file; "cmd_$sub" "$@" ;;
-    brief|add|claim|preflight|verify|review|reject|audit|drift|record|approve|adopt|ask|decide|reset) "cmd_$sub" "$@" ;;
+    brief|start|edit|remove|move|add|claim|preflight|verify|review|reject|audit|drift|record|approve|adopt|ask|decide|reset) "cmd_$sub" "$@" ;;
     commit)           cmd_record "$@" ;;
-    *) die "$EXIT_USAGE" "사용: harness feature <list|next|status|show|brief|add|claim|preflight|verify|review|reject|audit|drift|record|approve|adopt|ask|decide|reset>" ;;
+    *) die "$EXIT_USAGE" "사용: harness feature <list|next|status|show|brief|start|edit|remove|move|add|claim|preflight|verify|review|reject|audit|drift|record|approve|adopt|ask|decide|reset>" ;;
   esac
 }
 

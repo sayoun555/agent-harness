@@ -151,8 +151,11 @@ try {
   ])
 
   const commits = execFileSync('git', ['log', '--format=%s'], { cwd: project, encoding: 'utf8' }).trim().split('\n')
-  assert.deepEqual(commits, ['feat(tail): 꼬리', 'feat(div): 나누기', 'feat(sub): 빼기', 'init'])
-  const tailFiles = execFileSync('git', ['show', '--name-only', '--format=', 'HEAD'], { cwd: project, encoding: 'utf8' })
+  // 판단 대기(cache) · 막힘(mul) 으로 바뀐 원장은 루프 끝에 원장만 커밋된다(현장 보고 H8)
+  assert.deepEqual(commits, ['chore(harness): 원장 — 루프 종료(all-done)', 'feat(tail): 꼬리', 'feat(div): 나누기', 'feat(sub): 빼기', 'init'])
+  const ledgerCommit = execFileSync('git', ['show', '--name-only', '--format=', 'HEAD'], { cwd: project, encoding: 'utf8' }).trim()
+  assert.equal(ledgerCommit, '.harness/features.json')
+  const tailFiles = execFileSync('git', ['show', '--name-only', '--format=', 'HEAD~1'], { cwd: project, encoding: 'utf8' })
   assert.ok(!tailFiles.includes('payment'), `꼬리 커밋에 결제 코드가 섞였다:\n${tailFiles}`)
   const parked = execFileSync('git', ['show', 'harness/pay:src/payment.js'], { cwd: project, encoding: 'utf8' })
   assert.match(parked, /export const pay/)

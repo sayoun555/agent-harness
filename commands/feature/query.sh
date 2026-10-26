@@ -38,7 +38,7 @@ cmd_next() {
   filter="$(fields_filter "$@")"
   if [[ -n "$limit" ]]; then
     [[ "$limit" =~ ^[1-9][0-9]*$ ]] || die "$EXIT_USAGE" "--limit 은 1 이상의 정수"
-    jq -c --argjson n "$limit" --arg s "$STATUS_PENDING" "[.features[] | select(.status == \$s)][:\$n] | map($filter)" "$(features_file)"
+    jq -c --argjson n "$limit" "$JQ_READY .features as \$all | [.features[] | select(ready(\$all))][:\$n] | map($filter)" "$(features_file)"
     return
   fi
   id="$(next_pending_id)"

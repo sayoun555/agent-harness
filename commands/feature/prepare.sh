@@ -4,7 +4,7 @@
 #
 
 cmd_add() {
-  local id desc acceptance design decisions figma baseline file
+  local id desc acceptance design decisions figma baseline deps problem file
   id="$(flag_value --id "$@")"
   desc="$(flag_value --desc "$@")"
   acceptance="$(flag_value --acceptance "$@")"
@@ -12,20 +12,24 @@ cmd_add() {
   decisions="$(flag_value --decisions-json "$@")"
   figma="$(flag_value --figma "$@")"
   baseline="$(flag_value --baseline-json "$@")"
-  [[ -n "$id" && -n "$desc" && -n "$acceptance" ]] || die "$EXIT_USAGE" "사용: feature add --id ID --desc 설명 --acceptance 명령 [--design 문서] [--decisions-json JSON] [--figma 링크] [--baseline-json JSON]"
+  deps="$(depends_on_json "$(flag_value --depends-on "$@")")"
+  [[ -n "$id" && -n "$desc" && -n "$acceptance" ]] || die "$EXIT_USAGE" "사용: feature add --id ID --desc 설명 --acceptance 명령 [--design 문서] [--decisions-json JSON] [--figma 링크] [--baseline-json JSON] [--depends-on a,b]"
   jq -e 'type == "array"' <<<"${decisions:-[]}" >/dev/null 2>&1 || die "$EXIT_USAGE" "--decisions-json 은 [{question, answer}] 배열"
   jq -e 'type == "array"' <<<"${baseline:-[]}" >/dev/null 2>&1 || die "$EXIT_USAGE" "--baseline-json 은 [{id, title, how}] 배열"
   file="$(features_file)"
   [[ -f "$file" ]] || { mkdir -p "$(dirname "$file")"; echo '{"features":[]}' > "$file"; }
   [[ -z "$(feature_json "$id")" ]] || die "$EXIT_USAGE" "이미 있는 기능이다: $id"
+  problem="$(dependency_problem "$id" "$deps")"
+  [[ -z "$problem" ]] || die "$EXIT_USAGE" "$problem"
   json_update "$file" '.features += [{id: $id, description: $desc, acceptance: $acc,
                                        status: "pending", attempts: 0, repeats: 0}
                                       + (if $design == "" then {} else {designDoc: $design} end)
                                       + (if ($decisions | length) == 0 then {} else {decisions: $decisions} end)
                                       + (if $figma == "" then {} else {figma: $figma} end)
-                                      + (if ($baseline | length) == 0 then {} else {baseline: $baseline} end)]' \
+                                      + (if ($baseline | length) == 0 then {} else {baseline: $baseline} end)
+                                      + (if ($deps | length) == 0 then {} else {dependsOn: $deps} end)]' \
     --arg id "$id" --arg desc "$desc" --arg acc "$acceptance" --arg design "$design" --arg figma "$figma" \
-    --argjson decisions "${decisions:-[]}" --argjson baseline "${baseline:-[]}"
+    --argjson decisions "${decisions:-[]}" --argjson baseline "${baseline:-[]}" --argjson deps "$deps"
   echo "➕ 기능 추가: $id"
 }
 

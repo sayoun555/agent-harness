@@ -55,9 +55,35 @@ require_status() {  # require_status <id> <허용 상태...>
   die "$EXIT_USAGE" "기능 $id 의 상태가 '$current' 이다. 이 명령은 [$*] 상태에서만 가능하다."
 }
 
+# 고를 수 있는 기능 = pending 이고 앞 기능(dependsOn)이 모두 passing. jq 정의이고 `.features as $all` 아래에서 쓴다.
+#   앞 기능이 승인 대기 · 막힘이면 그 변경은 보관돼 트리에 없다. 그 위에서 구현하면 승인할 때 충돌한다(현장 보고 H7).
+#   그래서 앞 기능이 기록될 때까지 고르지 않는다. 기다리는 기능은 요약 · 보고서에 "대기" 로 나온다.
+readonly JQ_READY='def ready($all):
+  .status == "pending"
+  and ((.dependsOn // []) | all(. as $d | $all | any(.id == $d and .status == "passing")));
+def waiting_for($all):
+  [(.dependsOn // [])[] as $d | $all[] | select(.id == $d and .status != "passing") | "\(.id)(\(.status))"];'
+
 next_pending_id() {
-  jq -r --arg s "$STATUS_PENDING" '[.features[] | select(.status == $s)][0].id // empty' "$(features_file)"
+  jq -r "$JQ_READY"' .features as $all | [.features[] | select(ready($all))][0].id // empty' "$(features_file)"
 }
+
+# dependency_problem <id> <dependsOn JSON 배열> → 문제가 있으면 한 줄 (없으면 빈 출력)
+#   없는 기능 · 자기 자신 · 순환이면 그 기능은 영영 고를 수 없다. 조용히 멈춰 있지 않게 등록할 때 막는다.
+dependency_problem() {
+  jq -r --arg id "$1" --argjson deps "$2" '
+    (.features | map({key: .id, value: (.dependsOn // [])}) | from_entries) as $graph
+    | ($graph + {($id): $deps}) as $g
+    | def closure: . as $s | ($s + [$s[] | ($g[.] // [])[]] | unique) as $n | if $n == $s then $s else ($n | closure) end;
+    ([$deps[] | select(. as $d | $graph | has($d) | not)]) as $missing
+    | if ($deps | index($id)) then "자기 자신에 의존할 수 없다: \($id)"
+      elif ($missing | length) > 0 then "그런 기능이 없다: \($missing | join(", "))"
+      elif ($deps | unique | closure | index($id)) then "순환 의존이 된다: \($id) → \($deps | join(", ")) → … → \($id)"
+      else empty end' "$(features_file)"
+}
+
+# --depends-on a,b → JSON 배열 (빈 값이면 [])
+depends_on_json() { split_commas "$1" | lines_to_json; }
 
 set_feature_fields() {  # set_feature_fields <id> <json-object>
   json_update "$(features_file)" \
@@ -111,14 +137,16 @@ features_summary() {
   local file
   file="$(features_file)"
   [[ -f "$file" ]] || return 0
-  jq -r '
+  jq -r "$JQ_READY"'
+    .features as $all |
     def ids(s): [.features[] | select(.status == s) | .id] | join(", ");
     "기능 원장: 전체 \(.features | length) · 통과 \([.features[] | select(.status == "passing")] | length)"
     + " · 남음 \([.features[] | select(.status == "pending" or .status == "verified" or .status == "reviewed")] | length)"
     + (if ids("blocked") != "" then "\n  막힘(사람 확인 필요): " + ids("blocked") else "" end)
     + (if ids("awaiting-approval") != "" then "\n  승인 대기: " + ids("awaiting-approval") else "" end)
     + ([.features[] | select(.status == "needs-decision") | "\n  판단 필요: \(.id) — \(.question)"] | join(""))
-    + (([.features[] | select(.status == "pending")][0]) as $n
+    + ([.features[] | select(.status == "pending" and (ready($all) | not)) | "\n  대기(앞 기능): \(.id) ← \(waiting_for($all) | join(", "))"] | join(""))
+    + (([.features[] | select(ready($all))][0]) as $n
        | if $n then "\n  다음: \($n.id) — \($n.description)" else "" end)
   ' "$file"
 }

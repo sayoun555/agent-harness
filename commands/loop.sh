@@ -43,7 +43,8 @@ acquire_lock() {
 }
 
 # ── 모델을 부르기 전 점검 (토큰 0) ──────────────────────────────────
-pending_count() { jq '[.features[] | select(.status == "pending")] | length' "$(features_file)"; }
+# 고를 수 있는 기능만 센다 — 앞 기능을 기다리는 기능만 남았으면 모델을 불러도 할 일이 없다
+pending_count() { jq "$JQ_READY"' .features as $all | [.features[] | select(ready($all))] | length' "$(features_file)"; }
 
 ready_or_exit() {
   local preflight
@@ -52,7 +53,7 @@ ready_or_exit() {
     die "$EXIT_GATE_FAILED" "사전 점검 실패 — 모델을 부르지 않았다"
   fi
   if [[ "$(pending_count)" -eq 0 ]]; then
-    info "✅ loop: 할 일이 없다 (pending 0) — 모델을 부르지 않았다"
+    info "✅ loop: 할 일이 없다 (고를 수 있는 pending 0 — 앞 기능을 기다리는 기능은 세지 않는다) — 모델을 부르지 않았다"
     exit 0
   fi
 }

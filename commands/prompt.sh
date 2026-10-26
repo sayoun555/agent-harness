@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # harness prompt — 구현자·검증자 표준 프롬프트.
-#   implement ID [--mode sequential|isolated|shared] [--json]
+#   implement ID [--mode sequential|isolated|shared] [--json]   읽기만 한다. 구현을 시작할 때는 feature start (진행 중 표시)
 #   review ID [--mode standalone|loop] [--json]   loop 면 검증자가 직접 제출하지 않는다(루프가 제출)
 #
 #   루프·스킬·사람이 모두 이 명령에서 같은 프롬프트를 받는다. 에이전트가 직접 실행해 받아 간다.

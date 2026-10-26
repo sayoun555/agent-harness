@@ -39,7 +39,7 @@ const BUDGET_FLOOR = 50000
 
 // 원장은 필요한 필드만 읽는다. 전체에는 실패 출력 · 대조표가 실려 커지고, 명령 실행 에이전트가 옮기는 동안 걸러질 수 있다.
 const SELECT_FIELDS = 'id,attempts,figma'                 // 선택: 태그 · 시도 횟수 · 구현자 종류
-const SUMMARY_FIELDS = 'id,status,lastFailure,question'   // 끝 요약
+const SUMMARY_FIELDS = 'id,status,lastFailure,question,dependsOn'   // 끝 요약 (dependsOn: 앞 기능을 기다리는 기능)
 
 // ── 스키마 ─────────────────────────────────────────────────────────
 const COMMAND_RESULT = {
@@ -175,7 +175,7 @@ function implementPrompt(feature, mode) {
   return [
     `너는 기능 ${feature.id} 을 구현하는 코더다.`,
     WHERE,
-    `먼저 \`${HARNESS} prompt implement ${feature.id} --mode ${mode}\` 를 실행하고, 출력된 지시를 그대로 따른다.`,
+    `먼저 \`${HARNESS} feature start ${feature.id} --mode ${mode}\` 를 실행하고, 출력된 지시를 그대로 따른다.`,
   ].filter(Boolean).join('\n')
 }
 
@@ -375,6 +375,15 @@ phase('Audit')
 const audit = await runHarness('feature audit --json', 'audit')
 const ledger = await runHarness(`feature list --json --fields ${SUMMARY_FIELDS}`, '원장')
 const features = Array.isArray(ledger) ? ledger : []
+// 고를 기능이 없어 끝났어도 앞 기능(막힘 · 승인 대기 등)을 기다리는 기능이 남았으면 완료가 아니다
+const statusOf = new Map(features.map((f) => [f.id, f.status]))
+const waiting = features
+  .filter((f) => f.status === 'pending' && (f.dependsOn || []).some((d) => statusOf.get(d) !== 'passing'))
+  .map((f) => ({ id: f.id, waitingFor: f.dependsOn.filter((d) => statusOf.get(d) !== 'passing') }))
+if (stopReason === 'all-done' && waiting.length > 0) {
+  stopReason = 'waiting'
+  log(`남은 기능은 앞 기능을 기다린다: ${waiting.map((w) => `${w.id} ← ${w.waitingFor.join(', ')}`).join(' · ')} — 앞 기능을 풀면 이어서 한다.`)
+}
 // 사람이 읽는 보고서(기능별 문제와 해결 · 시간 · 이상 신호). 하네스가 trace 로 만든다 — 모델은 명령 하나만 실행한다.
 const stopWhy = stuck ? `${stuck.feature}: ${stuck.node} → ${stuck.result} ${stuck.reason || ''}`
   : stopReason === 'usage-limit' ? `${usage.summary} (기준 ${usage.stopPercent}%)` : ''
@@ -397,6 +406,7 @@ return {
   blocked: byStatus('blocked'),                       // 사람: 원인 해결 후 harness feature reset ID
   interrupted: [...byStatus('verified'), ...byStatus('reviewed')].map((f) => f.id),  // 판정 뒤 기록 전에 끊긴 기능
   pending: byStatus('pending').map((f) => f.id),
+  waiting,                                            // 사람: 앞 기능(waitingFor)을 승인 · reset 하면 이어서 한다
   auditRegressions: audit && Array.isArray(audit.regressed) ? audit.regressed : [],
   mcpSuggestions,                                     // 사람: 설치할지 결정 (하네스는 설치하지 않는다)
   report: report && report.path ? report.path : null, // 사람: 기능별 문제와 해결 · 시간 · 할 일

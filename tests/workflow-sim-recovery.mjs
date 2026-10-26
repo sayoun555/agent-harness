@@ -88,7 +88,7 @@ async function runStuck() {
   const project = makeProject(LEDGER)
   addFeature(project, 'x', '엑스', 'true')
   addFeature(project, 'held', '홀드', 'true')
-  mustRun(project, `bash ${HARNESS} feature preflight >/dev/null 2>&1; bash ${HARNESS} prompt implement held >/dev/null`)
+  mustRun(project, `bash ${HARNESS} feature preflight >/dev/null 2>&1; bash ${HARNESS} feature start held >/dev/null`)
   let implemented = 0
 
   async function agent(prompt, opts = {}) {
@@ -166,11 +166,45 @@ async function runUsageLimit() {
   }
 }
 
+// ── 실행 5 ─────────────────────────────────────────────────────────
+// 앞 기능이 막혔다 → 그 기능에 의존하는 기능은 고르지 않는다. 끝은 완료(all-done)가 아니라 대기(waiting)
+async function runWaiting() {
+  const project = makeProject(LEDGER)
+  addFeature(project, 'a', '에이', 'false')
+  mustRun(project, `bash ${HARNESS} feature add --id b --desc 비 --acceptance true --depends-on a >/dev/null 2>&1`)
+  const implementedIds = []
+  async function agent(prompt, opts = {}) {
+    const keys = schemaKeys(opts)
+    if (keys.includes('exitCode')) return runCommandNode(project, prompt)
+    if (keys.includes('filesChanged')) {
+      followBootstrap(project, prompt)
+      implementedIds.push(featureIdOf(prompt))
+      writeFileSync(join(project, 'src/a.js'), `export const a = ${implementedIds.length};\n`)
+      return { needsDecision: false, question: '', summary: '구현', filesChanged: ['src/a.js'] }
+    }
+    throw new Error(`알 수 없는 agent 호출: ${opts.label}`)
+  }
+  try {
+    const run = await loadWorkflow({ agent, parallel: fakeParallel, phase: () => {}, log: () => {}, args: {}, budget: noBudget })
+    const result = await run()
+    assert.ok(implementedIds.every((id) => id === 'a'), `앞 기능이 막힌 동안 b 를 구현하지 않는다: ${implementedIds}`)
+    assert.deepEqual(result.blocked.map((f) => f.id), ['a'])
+    assert.equal(result.stopReason, 'waiting')
+    assert.deepEqual(result.waiting, [{ id: 'b', waitingFor: ['a'] }])
+    const report = readFileSync(join(project, result.report), 'utf8')
+    assert.match(report, /- 대기: b ← a\(blocked\)/)
+    console.log('✓ 실행 5: 앞 기능이 막히면 뒤 기능을 고르지 않고 대기로 끝난다 · 보고서의 사람이 할 일에 남는다')
+  } finally {
+    rmSync(project, { recursive: true, force: true })
+  }
+}
+
 try {
   await runRecovery()
   await runStuck()
   await runLostSelection()
   await runUsageLimit()
+  await runWaiting()
 } finally {
   rmSync(elsewhere, { recursive: true, force: true })
 }

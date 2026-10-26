@@ -84,11 +84,11 @@ export function schemaKeys(opts) {
 
 // ── 실제 에이전트처럼: 짧은 부트스트랩 프롬프트의 명령을 직접 실행해 진짜 프롬프트를 받는다 ──
 export function featureIdOf(prompt) {
-  return (prompt.match(/prompt (?:implement|review) ([\w-]+)/) || [])[1]
+  return (prompt.match(/(?:feature start|prompt review) ([\w-]+)/) || [])[1]
 }
 
 export function followBootstrap(dir, prompt) {
-  const command = (prompt.match(/`((?:cd '[^']*' && )?\.harness\/bin\/harness prompt [^`]+)`/) || [])[1]
+  const command = (prompt.match(/`((?:cd '[^']*' && )?\.harness\/bin\/harness (?:prompt|feature start) [^`]+)`/) || [])[1]
   if (!command) throw new Error(`부트스트랩 명령이 없다:\n${prompt}`)
   return mustRun(dir, command.replace(HARNESS_COMMAND, `$1bash ${HARNESS}`))
 }

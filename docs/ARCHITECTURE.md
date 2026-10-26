@@ -21,9 +21,9 @@ design check 를 통과하지 못한 설계는 원장에 들어가지 않는다.
 
 | 노드 | 누가 | 명령 |
 |---|---|---|
-| 선택 | 결정론 | `feature next --json` |
-| 구현 | LLM (시도마다 새 에이전트, 재사용하지 않음) | 에이전트가 `prompt implement ID` 를 직접 실행해 표준 프롬프트를 받는다 |
-| 게이트 | 결정론 | `feature verify ID` = compile → test-guard → acceptance → (켜져 있으면) 실행 렌즈 `run ID`. 빌드는 빌드 잠금 안에서 |
+| 선택 | 결정론 | `feature next --json` — pending 이고 앞 기능(`dependsOn`)이 모두 passing 인 첫 기능 |
+| 구현 | LLM (시도마다 새 에이전트, 재사용하지 않음) | 에이전트가 `feature start ID` 를 직접 실행해 표준 프롬프트를 받는다(구현 시작도 남긴다). `prompt implement ID` 는 같은 지시문을 읽기만 한다 |
+| 게이트 | 결정론 | `feature verify ID` = compile → format(설정 시) → test-guard → acceptance → (켜져 있으면) 실행 렌즈 `run ID`. 빌드는 빌드 잠금 안에서 |
 | 검증 | LLM (구현하지 않은 독립 검증자, 검증마다 새 에이전트) | `prompt review ID` 를 받아 대조표를 낸다 → `feature review ID --verdict-json` 으로 하네스가 판정. 루프는 `--mode loop` 로 불러 검증자가 직접 제출하지 않게 한다 |
 | 기록 | 결정론 | `feature record ID` (reviewed 에서만) |
 
@@ -110,7 +110,7 @@ defaults → 프리셋(스택 하나) → 애드온(서비스 · 인프라, 여�
 ## 소유권과 단계별 변경 해시
 
 범위(claim)가 없는 기능은 작업 트리 전체를 자기 변경으로 본다. 그래서 같은 트리에 변경이 남아 있을 수 있는 다른 기능이 있으면 verify · review · record · approve · ask 가 멈춘다(`require_sole_owner`, `lib/record.sh`). 변경을 보관하는 명령은 모두 이 확인을 먼저 거친다.
-그런 기능(진행 중, `lib/features.sh` 의 `JQ_IN_FLIGHT`)은 verified · reviewed, 또는 pending 이면서 이 트리에서 구현을 시작한 기능이다. 구현 시작은 `prompt implement` 가 원장 `implementedUnder.mode` 에 남긴다. isolated(워크트리)는 제외하고, 기록 · 보관 · reset · drift 로 다시 열 때 지운다.
+그런 기능(진행 중, `lib/features.sh` 의 `JQ_IN_FLIGHT`)은 verified · reviewed, 또는 pending 이면서 이 트리에서 구현을 시작한 기능이다. 구현 시작은 `feature start` 가 원장 `implementedUnder.mode` 에 남긴다(`prompt implement` 는 읽기만 한다). isolated(워크트리)는 제외하고, 기록 · 보관 · reset · drift 로 다시 열 때 지운다.
 이게 없으면 한 기능의 위험 판정·보관이 남의 변경까지 담아 트리에서 치우고, 다음 기능은 빈 트리로 통과한다.
 멈췄을 때 빠져나오는 길은 둘이다. 멈춘 기능의 범위를 claim 으로 적거나(verified · reviewed 에서도 되고, 범위가 바뀌면 게이트부터 다시), 실제로는 끊긴 다른 기능을 reset 해서 진행 중에서 뺀다. reset 은 작업 트리를 건드리지 않는다.
 커밋 없이 운용하는 루프는 순차에서도 구현자가 바꾼 파일을 claim 한다(판단 요청보다 먼저 — 판단 대기로 보관할 때 자기 파일만 치우게). 다시 claim 하면 범위에 더한다(앞 시도의 변경도 트리에 남아 있다).

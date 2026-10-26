@@ -3,7 +3,7 @@
 # harness criteria — 검증 기준(공통 · 스택 · 프로젝트).
 #
 #   list                      검증에 쓰는 기준 ID 와 제목, 어느 파일인지
-#   show                      검증에 쓰는 기준 전체 (review --criteria 와 같다)
+#   show [ID...]              검증에 쓰는 기준 전체 (review --criteria 와 같다). ID 를 주면 그 항목만
 #   add --title 제목 --rule 규칙 [--why 이유] [--when 적용 조건] [--check 확인 방법] [--file 이름.md]
 #                             프로젝트 기준(.harness/criteria/)에 새 항목을 P<번호> 로 붙인다.
 #                             반려가 반복된 항목을 여기 쌓으면 다음 구현·검증에 자동으로 들어간다.
@@ -71,9 +71,25 @@ ITEM
   echo "➕ 기준 추가: $id $title → ${file#"$PROJECT_ROOT"/}"
 }
 
+# 기준 항목 하나 = "## <ID>. 제목" 부터 다음 제목 전까지
+cmd_show() {
+  [[ $# -eq 0 ]] && { print_review_criteria; return; }
+  local id missing=()
+  for id in "$@"; do
+    [[ "$id" =~ ^[A-Z][0-9]+$ ]] || die "$EXIT_USAGE" "기준 ID 형식이 아니다: $id (예: B4)"
+    review_criterion_index | cut -f1 | grep -qxF "$id" || missing+=("$id")
+  done
+  [[ ${#missing[@]} -eq 0 ]] || die "$EXIT_USAGE" "이 프로젝트의 검증 기준에 없다: ${missing[*]} (harness criteria list)"
+  review_criteria_files | while IFS= read -r file; do [[ -n "$file" ]] && cat "$file"; done \
+    | awk -v ids=" $* " '
+        /^#{1,2} / { on = 0 }
+        /^## [A-Z][0-9]+\. / { id = $2; sub(/\.$/, "", id); on = index(ids, " " id " ") > 0 }
+        on'
+}
+
 case "${1:-}" in
   list) cmd_list ;;
-  show) print_review_criteria ;;
+  show) shift; cmd_show "$@" ;;
   add)  shift; cmd_add "$@" ;;
-  *)    die "$EXIT_USAGE" "사용: harness criteria <list | show | add --title 제목 --rule 규칙 …>" ;;
+  *)    die "$EXIT_USAGE" "사용: harness criteria <list | show [ID...] | add --title 제목 --rule 규칙 …>" ;;
 esac

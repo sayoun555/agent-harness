@@ -68,6 +68,7 @@ test -f .harness/project.json && test -x .harness/bin/harness && echo plugged ||
    - `id`: 짧은 영문 kebab-case
    - `desc`: 한 문장
    - `acceptance`: 이 기능이 되면 통과하고 안 되면 실패하는 **실행 가능한 명령**. 가능하면 이 저장소의 기존 테스트 명령을 쓴다. 테스트가 없으면 그 기능을 확인하는 가장 작은 명령(특정 테스트 파일 실행, grep, 스크립트)을 쓴다.
+   - 앞 기능(`--depends-on`)은 **앞 기능이 고친 파일을 다시 고치거나, 앞 기능의 결과(코드 · 테스트)를 써야 할 때만** 붙인다. 붙이면 앞 기능이 통과할 때까지 루프가 고르지 않는다. 습관처럼 붙이면 모든 기능이 한 줄로 선다.
 3. 표로 한 번 보여 주고 확인을 받는다. 확인 전에는 원장에 넣지 않는다.
 4. 확인되면 기능마다 추가한다.
    ```bash
@@ -78,7 +79,8 @@ test -f .harness/project.json && test -x .harness/bin/harness && echo plugged ||
    git add .harness/features.json && git commit -m "chore(harness): 기능 N개 추가"
    ```
    다른 변경이 이미 작업 트리에 있으면 커밋하지 말고, 루프 전에 그 변경을 커밋하거나 stash 해야 한다고 알린다.
-6. `.harness/features.json` 은 Edit·Write 로 직접 고치지 않는다. 훅이 거부한다.
+6. `.harness/features.json` 은 Edit·Write 로 직접 고치지 않는다. 훅이 거부한다. 등록한 기능은 명령으로 고친다:
+   `feature edit ID [--desc …] [--acceptance …] [--depends-on a,b]` · `feature remove ID` · `feature move ID --before 다른ID`.
 
 ## 2A. 루프 실행 ("루프 돌려 줘")
 
@@ -106,6 +108,7 @@ test -f .harness/project.json && test -x .harness/bin/harness && echo plugged ||
    `stopReason` 이 `stuck` 이면 같은 기능이 진전 없이 같은 결과를 반복한 것이다. `stuck.reason` 을 그대로 보여 준다.
    "범위 미지정" 이면 6의 "다른 기능 때문에 멈췄을 때" 로 푼다.
    `stopReason` 이 `usage-limit` 이면 요금제 사용량이 기준(`loop.usageStopPercent`, 기본 90%)을 넘어 다음 기능을 시작하지 않은 것이다. `usage` 를 보여 주고 한도가 풀린 뒤 다시 돌리라고 알린다. 루프 중 사용량은 진행 줄에 찍힌다. 루프 밖에서는 `.harness/bin/harness usage`.
+   `stopReason` 이 `waiting` 이면 남은 기능이 앞 기능(`waiting[].waitingFor`)을 기다린다. 그 앞 기능의 승인 · 막힘을 먼저 풀라고 알린다.
    `report` 경로(`.harness/runs/report.md`)를 알려 준다. 기능별 문제와 해결 · 시간 · 이상 신호가 들어 있다. 루프 없이 진행했으면 `.harness/bin/harness trace report` 로 만든다.
 
 ## 2B. 루프 없이 진행 ("루프는 안 써", "하나씩 해 줘")
@@ -124,7 +127,7 @@ test -f .harness/project.json && test -x .harness/bin/harness && echo plugged ||
 사전 점검이 "Figma MCP 가 연결돼 있지 않다" 고 하면 Figma 기능은 기본 에이전트로 띄운다.
 
 1. **구현 서브에이전트**(Agent 도구)를 띄운다. 프롬프트는 이 한 줄이다.
-   > 먼저 `.harness/bin/harness prompt implement ID` 를 실행하고, 출력된 지시를 그대로 따른다.
+   > 먼저 `.harness/bin/harness feature start ID` 를 실행하고, 출력된 지시를 그대로 따른다.
 
    구현자가 판단을 요청하면 `feature ask ID --question '질문'` 으로 남기고 다음 기능으로 간다.
    커밋 없이 운용하면(`loop.autoCommit: false`) 구현자가 보고한 바꾼 파일을 그 기능의 범위로 적는다. 루프도 같은 일을 한다.

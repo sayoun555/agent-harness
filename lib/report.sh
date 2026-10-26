@@ -101,7 +101,10 @@ build_report() {
         "",
         ( [ ($f[] | select(.status == "needs-decision") | "- 판단: \(.id) — \(.question // "" | cell) → `harness feature decide \(.id) --answer …`"),
             ($f[] | select(.status == "awaiting-approval") | "- 승인: \(.id) → `harness feature approve \(.id)`"),
-            ($f[] | select(.status == "blocked") | "- 막힘: \(.id) — \(.lastFailure // "" | cell) → 원인을 푼 뒤 `harness feature reset \(.id)`") ]
+            ($f[] | select(.status == "blocked") | "- 막힘: \(.id) — \(.lastFailure // "" | cell) → 원인을 푼 뒤 `harness feature reset \(.id)`"),
+            ($f as $all | $f[] | select(.status == "pending")
+              | [(.dependsOn // [])[] as $d | $all[] | select(.id == $d and .status != "passing") | "\(.id)(\(.status))"] as $w
+              | select($w | length > 0) | "- 대기: \(.id) ← \($w | join(", ")) — 앞 기능이 기록되면 루프가 이어서 고른다") ]
           | if length == 0 then "없음." else .[] end )
       ] | .[]
   ' "$1"

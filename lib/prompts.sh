@@ -4,7 +4,7 @@
 #   lib/features.sh · lib/criteria.sh · lib/cli.sh 가 필요하다.
 #
 # 루프(workflows/feature-loop.js), 루프 없이 진행하는 스킬, 사람이 모두 같은 프롬프트를 쓴다.
-# 에이전트는 이 프롬프트를 `harness prompt implement|review ID` 로 직접 받아 온다
+# 에이전트는 이 프롬프트를 `harness feature start ID`(구현 — 진행 중 표시도 남긴다) · `harness prompt review ID` 로 직접 받아 온다
 # (다른 에이전트가 중계하지 않는다 — 긴 글이 중계 중에 잘리거나 바뀌지 않게).
 #
 # 들어가는 것: 기능 · 설계 문서 · 사람 결정 · 직전 실패 사유 · 품질 기준(공통 + 스택 + 프로젝트) · 규칙.
@@ -143,14 +143,15 @@ criteria_change_notice() {  # criteria_change_notice <id>
   printf '\n\n'
 }
 
-# emit_implement_prompt <id> [--mode M] [--json]
+# emit_implement_prompt <id> [--start] [--mode M] [--json]
+#   --start 면 구현 시작으로 남긴다(feature start). 없으면 읽기만 한다(prompt implement · feature brief) — 원장을 바꾸지 않는다.
 emit_implement_prompt() {
   local id="$1" mode prompt; shift
   mode="$(flag_value --mode "$@")"
   mode="${mode:-sequential}"
   [[ "$mode" =~ ^($IMPLEMENT_MODES)$ ]] || die "$EXIT_USAGE" "--mode 는 sequential · isolated · shared"
   prompt="$(implement_prompt "$id" "$mode")"
-  remember_implementation_start "$id" "$mode"
+  has_flag --start "$@" && remember_implementation_start "$id" "$mode"
   emit "$(json_mode_of "$@")" "$(jq -cn --arg id "$id" --arg mode "$mode" --arg p "$prompt" '{id: $id, mode: $mode, prompt: $p}')" "$prompt"
 }
 

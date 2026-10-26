@@ -125,7 +125,7 @@ function runSequence(seed, mode) {
 
   // ── 무작위 동작 ───────────────────────────────────────────────────
   const implement = (f) => {
-    step('prompt', 'implement', f)
+    step('feature', 'start', f)
     const files = [OWN[f]]
     if (r.chance(0.35)) files.push(r.pick(SHARED))
     if (r.chance(0.1)) files.push(RISKY)
@@ -181,7 +181,7 @@ function runSequence(seed, mode) {
         const status = statusOf(f)
         if (TERMINAL.has(status)) continue
         if (status === 'pending') {                          // 루프의 한 바퀴: 새 구현자가 자기 파일을 (다시) 쓰고 범위를 적는다
-          step('prompt', 'implement', f)
+          step('feature', 'start', f)
           write(OWN[f], f); wrote[f].add(OWN[f])
           if (mode === 'ledger') claimWritten(f)             // 루프의 자동 범위는 커밋 없이 운용할 때만
         }
