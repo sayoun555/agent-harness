@@ -134,12 +134,23 @@ reopen_drifted_for_loop() {
   return 0
 }
 
+# 포맷 검사가 루프 전부터 실패하면 모든 기능이 남의 코드 때문에 포맷 게이트에서 막힌다. 시작하기 전에 알린다.
+#   포매터를 한 번 돌려 커밋(또는 기준선)하면 그 뒤로는 기능이 바꾼 파일만 검사에 걸린다.
+check_format_ready() {
+  local check
+  check="$(cfg '.build.formatCheckCommand')"
+  [[ -z "$check" ]] && return 0
+  run_locked_step "$check" && return 0
+  PREFLIGHT_PROBLEMS+=("포맷 검사가 루프 전부터 실패한다($check) — 포매터($(cfg '.build.formatCommand'))를 한 번 돌려 반영하거나 build.formatCheckCommand 를 비운다"$'\n'"$STEP_OUTPUT")
+}
+
 cmd_preflight() {
   PREFLIGHT_PROBLEMS=()
   PREFLIGHT_NOTES=()
   check_ledger_ready
   reopen_drifted_for_loop
   check_working_tree_ready
+  check_format_ready
   local figma_notice
   figma_notice="$(figma_mcp_notice)"
   [[ -n "$figma_notice" ]] && PREFLIGHT_NOTES+=("$figma_notice")

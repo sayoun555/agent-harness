@@ -1953,6 +1953,64 @@ test_detect_spring_only_with_spring_boot_plugin() {
   assert_eq "$(detected_preset)" "generic" "(Spring 이 아닌 Gradle 은 generic)"
 }
 
+# ── 포맷 (검증자가 보지 않으니 게이트가 본다) ──────────────────────────
+set_build() { jq --argjson b "$1" '.build += $b' .harness/project.json > p.tmp && mv p.tmp .harness/project.json; }
+init_output() { rm -f .harness/project.json; h init --no-git-hooks --no-plugin --no-permissions 2>&1; }
+
+test_init_fills_format_commands_from_configured_formatter() {
+  echo 'plugins { id("org.springframework.boot") version "3.3.0"; id("com.diffplug.spotless") version "6.25.0" }' > build.gradle.kts
+  assert_contains "$(init_output)" "포맷 검사: ./gradlew spotlessCheck"
+  assert_eq "$(h config -r .build.formatCommand)" "./gradlew spotlessApply --console=plain -q"
+  rm build.gradle.kts
+  echo '{"devDependencies": {"prettier": "3.3.0"}}' > package.json
+  init_output >/dev/null
+  assert_eq "$(h config -r .build.formatCheckCommand)" "npx prettier --check ."
+}
+
+test_init_warns_without_formatter_and_suggests_on_existing_config() {
+  assert_contains "$(init_output)" "포맷 검사 도구가 없다"
+  echo 'plugins { id("org.jlleitschuh.gradle.ktlint") }' > build.gradle.kts
+  local out
+  out="$(h init --no-git-hooks --no-plugin --no-permissions 2>&1)"
+  assert_contains "$out" "ktlint 이 설정돼 있다" "(사람이 쓴 project.json 은 고치지 않고 알린다)"
+  assert_contains "$out" '"formatCheckCommand": "./gradlew ktlintCheck --console=plain -q"'
+  assert_eq "$(h config -r .build.formatCheckCommand)" ""
+}
+
+test_verify_fails_on_format_check_before_acceptance() {
+  set_build '{"formatCheckCommand": "test ! -e src/unformatted.js"}'
+  git commit -qam "포맷 검사"
+  add_feature sub "빼기" 'true'
+  echo 'x' > src/unformatted.js
+  assert_exit 1 h feature verify sub
+  assert_eq "$(field_of sub lastFailure)" "포맷 실패"
+  rm src/unformatted.js
+  echo 'export const sub = (a, b) => a - b;' >> src/math.js
+  assert_exit 0 h feature verify sub
+}
+
+test_implement_prompt_tells_how_to_format() {
+  add_feature sub "빼기" 'true'
+  assert_not_contains "$(h prompt implement sub)" "포맷"
+  set_build '{"formatCommand": "fmt --write", "formatCheckCommand": "fmt --check"}'
+  assert_contains "$(h prompt implement sub)" '끝내기 전에 `fmt --write` 로 포맷을 맞춘다'
+  assert_contains "$(h prompt implement sub --mode shared)" "포매터는 다른 기능의 파일까지 바꾸니 돌리지 않는다"
+  set_build '{"formatCommand": ""}'
+  assert_contains "$(h prompt implement sub)" '끝내기 전에 `fmt --check` 가 통과하는지 확인한다'
+}
+
+test_preflight_stops_when_format_fails_before_the_loop() {
+  add_feature sub "빼기" 'true'
+  echo 'x' > src/unformatted.js
+  set_build '{"formatCommand": "rm src/unformatted.js", "formatCheckCommand": "test ! -e src/unformatted.js"}'
+  git add -A && git commit -qm "포맷 안 된 코드"
+  assert_exit 1 h feature preflight
+  assert_contains "$(h feature preflight --json | jq -r '.problems[0]')" "포맷 검사가 루프 전부터 실패한다(test ! -e src/unformatted.js) — 포매터(rm src/unformatted.js)"
+  git rm -q src/unformatted.js && git commit -qm "포매터 반영"
+  assert_exit 0 h feature preflight
+  assert_contains "$(h permissions --json | jq -c .added)" "Bash(test ! -e src/unformatted.js)" "(포맷 명령도 허용 규칙에)"
+}
+
 # ── 언어별 stub ─────────────────────────────────────────────────────
 test_check_blocks_language_stubs() {
   printf 'fun load(): Int = TODO()\n' > src/A.kt

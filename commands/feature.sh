@@ -8,7 +8,7 @@
 #   준비     add --id ID --desc 설명 --acceptance 명령 [--design 문서] [--decisions-json JSON]
 #            claim ID --files 경로,경로                            같은 트리에서 기능이 맡은 파일 (범위에 더한다)
 #            preflight [--json]                                    시작 전 점검 (커밋 없이 운용하면 기준선 저장)
-#   판정     verify ID [--json]                                    컴파일 → 테스트 약화 → acceptance (→ 실행 렌즈). 통과면 verified
+#   판정     verify ID [--json]                                    컴파일 → 포맷 → 테스트 약화 → acceptance (→ 실행 렌즈). 통과면 verified
 #            review ID --verdict-json JSON | --verdict-file 파일     독립 검증자의 대조표. 승인·반려는 하네스가 정한다
 #            review ID --approve [--reason 근거] | --reject --reason 이유   사람이 직접 판정할 때
 #            reject ID --reason 이유                               review --reject 와 같다

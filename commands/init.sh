@@ -39,6 +39,7 @@ LOCAL_ONLY=0
 NO_COMMIT=0
 WANT_PLUGIN=1
 WANT_PERMISSIONS=1
+FORMAT="{}"
 WANT_GIT_HOOKS=1
 WANT_CI=0
 WANT_CI_LOOP=0
@@ -134,6 +135,24 @@ detect_addons() {
   return 0
 }
 
+# 포매터 감지: 빌드 파일에 이미 설정된 도구만 쓴다. 없는 도구를 기본값으로 넣으면 모든 기능이 그 게이트에서 막힌다.
+#   → {tool, formatCommand, formatCheckCommand} 또는 {}
+detect_format_commands() {
+  local maven="mvn"
+  [[ -x "$PROJECT_ROOT/mvnw" ]] && maven="./mvnw"
+  if build_files_mention 'com\.diffplug\.spotless'; then
+    jq -cn '{tool: "Spotless", formatCommand: "./gradlew spotlessApply --console=plain -q", formatCheckCommand: "./gradlew spotlessCheck --console=plain -q"}'
+  elif build_files_mention 'org\.jlleitschuh\.gradle\.ktlint'; then
+    jq -cn '{tool: "ktlint", formatCommand: "./gradlew ktlintFormat --console=plain -q", formatCheckCommand: "./gradlew ktlintCheck --console=plain -q"}'
+  elif build_files_mention 'spotless-maven-plugin'; then
+    jq -cn --arg m "$maven" '{tool: "Spotless", formatCommand: "\($m) -q spotless:apply", formatCheckCommand: "\($m) -q spotless:check"}'
+  elif package_json_depends_on prettier; then
+    jq -cn '{tool: "Prettier", formatCommand: "npx prettier --write .", formatCheckCommand: "npx prettier --check ."}'
+  else
+    echo '{}'
+  fi
+}
+
 available_presets() { ls "$HARNESS_HOME/presets" | grep -v '^_' | grep '\.json$' | sed 's/\.json$//' | paste -sd ' ' -; }
 available_addons() { ls "$HARNESS_HOME/presets/addons" | sed 's/\.json$//' | paste -sd ' ' -; }
 
@@ -157,17 +176,30 @@ write_if_absent() {  # write_if_absent <path> <content> <label>
 
 create_project_config() {
   local config
-  config="$(jq -n --arg preset "$PRESET" --arg addons "$ADDONS" --argjson local "$LOCAL_ONLY" --argjson noCommit "$NO_COMMIT" '{
+  config="$(jq -n --arg preset "$PRESET" --arg addons "$ADDONS" --argjson local "$LOCAL_ONLY" --argjson noCommit "$NO_COMMIT" \
+    --argjson format "$FORMAT" '{
     _about: "프리셋(스택 하나)과 애드온(서비스 · 인프라) 위에 이 프로젝트만의 값을 덮어쓴다. 객체는 깊게 병합, 배열은 교체. 해석 결과: harness config",
     preset: $preset,
     addons: ($addons | split(",") | map(select(. != ""))),
     designDocsDir: "",
-    build: {},
+    build: ($format | del(.tool)),
     approval: {}
   }
   + (if $local == 1 then {design: {docsDir: ".harness/design"}} else {} end)
   + (if $noCommit == 1 then {loop: {autoCommit: false}} else {} end)')"
   write_if_absent "$PROJECT_CONFIG" "$config" ".harness/project.json (preset: $PRESET${ADDONS:+, addons: $ADDONS})"
+}
+
+# 포맷은 검증자가 보지 않는다(기준에 없다). 도구가 없으면 아무도 보지 않으니 알린다.
+#   설정이 이미 있던 프로젝트(다시 init)는 감지한 명령을 직접 넣으라고 알린다 — 사람이 쓴 project.json 은 고치지 않는다.
+report_format_tool() {
+  [[ -n "$(cfg '.build.formatCheckCommand')" ]] && { info "✅ 포맷 검사: $(cfg '.build.formatCheckCommand')"; return 0; }
+  if [[ "$FORMAT" != "{}" ]]; then
+    info "ℹ️  $(jq -r .tool <<<"$FORMAT") 이 설정돼 있다. .harness/project.json 의 build 에 넣으면 verify 가 포맷을 본다:"
+    jq -r '"     \"formatCommand\": \"\(.formatCommand)\", \"formatCheckCommand\": \"\(.formatCheckCommand)\""' <<<"$FORMAT" >&2
+  else
+    info "⚠️  포맷 검사 도구가 없다 — 포맷은 검증자도 보지 않는다. 포매터를 넣고 build.formatCommand · build.formatCheckCommand 를 채운다"
+  fi
 }
 
 create_feature_ledger() {
@@ -285,8 +317,10 @@ main() {
   [[ "$ADDONS_GIVEN" -eq 1 ]] || ADDONS="$(detect_addons)"
   [[ -f "$(preset_file_for "$PRESET")" ]] || die "$EXIT_USAGE" "프리셋이 없다: $PRESET (있는 것: $(available_presets))"
   require_known_addons
+  FORMAT="$(detect_format_commands)"
   info "🧭 하네스 → $PROJECT_ROOT (preset: $PRESET${ADDONS:+, addons: $ADDONS})"
   create_project_config
+  report_format_tool
   create_feature_ledger
   create_shim
   ensure_ignored

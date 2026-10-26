@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# harness ci — CI 백스톱 한 번에: 전체 check → compile → test.
+# harness ci — CI 백스톱 한 번에: 전체 check → compile → format → test.
 #   로컬 훅을 --no-verify 로 건너뛰어도 여기서 다시 잡힌다.
 #
 set -euo pipefail
@@ -19,5 +19,6 @@ run_configured() {  # run_configured <label> <jq-path>
 
 bash "$HARNESS_HOME/commands/check.sh" --all
 run_configured compile '.build.compileCommand'
+run_configured format '.build.formatCheckCommand'
 run_configured test '.build.testCommand'
 echo "✅ harness ci 통과"

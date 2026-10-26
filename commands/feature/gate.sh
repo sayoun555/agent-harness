@@ -26,8 +26,9 @@ size_blocks_gate() {
 run_locked_step() { run_step "bash \"$HARNESS_HOME/commands/lock.sh\" run -- bash -c $(printf '%q' "$1")"; }
 
 run_gates() {  # run_gates <id> → 0 이면 모두 통과
-  local id="$1" compile acceptance guard
+  local id="$1" compile format_check acceptance guard
   compile="$(cfg '.build.compileCommand')"
+  format_check="$(cfg '.build.formatCheckCommand')"
   acceptance="$(feature_field "$id" acceptance)"
   scope_of "$id"
   guard="bash \"$HARNESS_HOME/commands/test-guard.sh\""
@@ -35,6 +36,7 @@ run_gates() {  # run_gates <id> → 0 이면 모두 통과
 
   if size_blocks_gate; then fail_gate "크기 초과"; return; fi
   if [[ -n "$compile" ]] && ! run_locked_step "$compile"; then fail_gate "컴파일"; return; fi
+  if [[ -n "$format_check" ]] && ! run_locked_step "$format_check"; then fail_gate "포맷"; return; fi
   run_step "$guard" || { fail_gate "테스트 약화"; return; }
   run_locked_step "$acceptance" || { fail_gate "acceptance"; return; }
   if runtime_enabled; then

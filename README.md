@@ -12,6 +12,7 @@
 | `check` | 강한 stub 마커·하드코딩 시크릿 | 차단 |
 | `check` | 약한 마커(임시·추후·일단)·파일 크기·하드코딩 값(프리셋 패턴) | 경고 |
 | `test-guard` | 테스트 케이스·assertion 합계 감소, skip 증가 | 차단 (파일별 감소는 경고) |
+| 포맷 | `build.formatCheckCommand` 가 verify 의 컴파일 다음 게이트로 돈다. 검증자는 포맷을 보지 않으니(기준에 없다) 이게 유일한 확인이다. 구현자는 끝내기 전에 `formatCommand` 로 맞춘다(같은 트리 병렬에서는 다른 기능의 파일까지 바꾸니 돌리지 않는다). `init` 이 빌드 파일에 설정된 Spotless · ktlint · Prettier 를 찾아 채우고, 없으면 경고한다. 루프 전부터 실패하면 사전 점검이 멈춘다(남의 코드로 모든 기능이 막히지 않게) | 차단 |
 | `feature` | 기능 원장. 게이트 통과(verified) → 독립 검증 통과(reviewed) → 기록(passing). 단계마다 변경 해시를 남겨, 앞 단계가 본 변경과 다르거나 기록할 변경이 비면 되돌린다 | 다시 대기열 |
 | 소유권 | 범위(claim) 없는 기능은 같은 트리에 기록 전인 다른 기능이 있으면 게이트·검증·기록·보관을 하지 않고 멈춘다. claim(verified·reviewed 에서도) 이나 reset 으로 푼다 | 멈춤 |
 | `risk` | 위험 파일(결제·인증 등) 변경 시 자동 커밋 대신 사람 승인 | 승인 대기 |
@@ -27,7 +28,7 @@
 | `trace` | 노드마다 한 줄 JSONL. 반복 감지·비용·부품 빼 보기 실험의 원천 | — |
 | `trace report` | trace 와 원장으로 사람이 읽는 보고서(`.harness/runs/report.md`): 기능별 문제와 해결, 처음 통과까지 시간 · 반려 수, 기능을 넘어 반복된 품질 기준, 하네스 이상 신호, 사람이 할 일. 루프가 끝날 때 만든다. 모델 호출 없음 | — |
 | `feature-loop` | 위 부품을 잇는 제한 루프 워크플로우. 순차 또는 병렬. 원장이 세지 않는 같은 결과(명령 거부 · 응답 없음)가 두 번 연속이면 `stuck` 으로 멈춘다 | 멈춤 |
-| `permissions` | 루프가 셸 명령마다 묻고 멈추지 않도록 Claude Code 허용 규칙을 `.claude/settings.local.json` 에 넣는다(커밋 안 함). 하네스 자신과 `build.compileCommand` · `testCommand` 만 넣는다. `init` 이 하고, 빌드 명령을 바꾼 뒤에는 사람이 다시 실행한다. 원장의 acceptance 와 루프 안 자동 갱신은 일부러 뺐다 — 에이전트가 쓸 수 있는 값이라, 넣으면 에이전트가 제 권한을 넓히는 길이 된다 | — |
+| `permissions` | 루프가 셸 명령마다 묻고 멈추지 않도록 Claude Code 허용 규칙을 `.claude/settings.local.json` 에 넣는다(커밋 안 함). 하네스 자신과 `build` 의 명령(컴파일 · 테스트 · 포맷)만 넣는다. `init` 이 하고, 빌드 명령을 바꾼 뒤에는 사람이 다시 실행한다. 원장의 acceptance 와 루프 안 자동 갱신은 일부러 뺐다 — 에이전트가 쓸 수 있는 값이라, 넣으면 에이전트가 제 권한을 넓히는 길이 된다 | — |
 | `usage` | 요금제 사용량(세션 · 주간 한도)을 Claude Code 의 `/usage` 로 읽는다(모델 호출 없음, 약 3초). 루프는 바퀴마다 진행 줄에 찍고, 기준(`loop.usageStopPercent`, 기본 90%)을 넘으면 다음 기능을 시작하지 않는다. 구독이 아니거나 읽지 못하면 그대로 돈다 | 멈춤 |
 | `loop` | 사람 없이 루프 실행(할 일이 없으면 토큰 0), cron 줄 출력, GitHub 트리거 템플릿 | — |
 | `mcp` | 프리셋이 권하는 MCP 의 연결 여부 확인 (설치하지 않음) | — |
@@ -259,7 +260,7 @@ GitHub 트리거는 main 에 직접 커밋하지 않고 PR 을 연다. 사람이
 ## 테스트
 
 ```bash
-bash tests/run.sh                     # 결정론 부품(LLM 없이 같은 입력에 같은 결과) 테스트 189개, 모델 호출 없음
+bash tests/run.sh                     # 결정론 부품(LLM 없이 같은 입력에 같은 결과) 테스트 194개, 모델 호출 없음
 node tests/workflow-sim.mjs           # 루프 그래프: LLM 만 가짜, 하네스 명령은 실제 실행
 node tests/workflow-sim-parallel.mjs  # 병렬 분기: 실제 git 워크트리, 충돌 포함
 node tests/workflow-sim-ledger.mjs    # 커밋 없는 운용: 커밋 0개 저장소, 같은 트리 병렬, 커밋·ref 0개 확인

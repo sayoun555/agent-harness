@@ -84,6 +84,22 @@ RULES
   esac
 }
 
+# 포맷은 검증자가 보지 않고 게이트(formatCheckCommand)가 본다. 구현자가 미리 맞추면 포맷 때문에 다시 도는 바퀴가 없다.
+format_rule() {  # format_rule <mode>
+  local format check
+  format="$(cfg '.build.formatCommand')"
+  check="$(cfg '.build.formatCheckCommand')"
+  [[ -z "$format$check" ]] && return 0
+  if [[ "$1" == shared ]]; then
+    [[ -n "$check" ]] && echo "- 포맷은 게이트(\`$check\`)가 본다. 포매터는 다른 기능의 파일까지 바꾸니 돌리지 않는다 — 바꾼 파일을 주변 코드의 포맷에 맞춰 쓴다."
+  elif [[ -n "$format" ]]; then
+    echo "- 끝내기 전에 \`$format\` 로 포맷을 맞춘다. 게이트가 포맷을 검사한다."
+  else
+    echo "- 끝내기 전에 \`$check\` 가 통과하는지 확인한다. 게이트가 같은 검사를 한다."
+  fi
+  return 0
+}
+
 attempt_number() { echo $(( $(feature_field "$1" attempts) + 1 )); }
 
 one_shot_notice() {  # one_shot_notice <id> <역할>
@@ -99,6 +115,7 @@ implement_prompt() {  # implement_prompt <id> <mode>
   printf '\n'
   implement_rules
   implement_mode_rules "$1" "$2"
+  format_rule "$2"
   printf '\n# 품질 기준 (검증 대조표 항목 · 기준 버전 %s)\n\n' "$(criteria_version)"
   print_review_criteria
 }

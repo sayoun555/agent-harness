@@ -4,7 +4,7 @@
 #
 # 넣는 것은 사람이 정한 명령뿐이다:
 #   - 하네스 자신 (.harness/bin/harness …)
-#   - project.json 의 build.compileCommand · build.testCommand
+#   - project.json 의 build 명령 (compileCommand · testCommand · formatCommand · formatCheckCommand)
 # 원장의 acceptance 는 넣지 않는다 — 에이전트가 feature add 로 쓸 수 있어, 넣으면 에이전트가 제 권한을 넓히는 길이 된다.
 # 그래서 이 일은 사람이 실행하는 init · harness permissions 에서만 하고, 루프 안(사전 점검 등)에서는 하지 않는다.
 # 에이전트가 그때그때 치는 명령(mv · sed -i 등)도 알 수 없어 넣지 않는다 — 자동 모드(auto mode)로 돌린다.
@@ -20,6 +20,8 @@ permission_settings_file() { printf '%s\n' "$PROJECT_ROOT/.claude/settings.local
 permission_source_commands() {
   cfg '.build.compileCommand'
   cfg '.build.testCommand'
+  cfg '.build.formatCommand'
+  cfg '.build.formatCheckCommand'
 }
 
 # permission_rules_json < 명령들 → {rules: [...], skipped: [...]}
