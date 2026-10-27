@@ -133,7 +133,8 @@ try {
   assert.deepEqual(result.passing.sort(), ['div', 'sub', 'tail'])
   assert.deepEqual(result.awaitingApproval.map((f) => f.id), ['pay'])
   assert.deepEqual(result.blocked.map((f) => f.id), ['mul'])
-  assert.deepEqual(result.needsDecision, [{ id: 'cache', question: questions_cache }])
+  assert.deepEqual(result.needsDecision.map(({ id, question }) => ({ id, question })), [{ id: 'cache', question: questions_cache }])
+  assert.match(result.needsDecision[0].askedAt.head, /^[0-9a-f]{7,}$/, '질문이 나온 커밋을 함께 돌려준다(낡은 질문 판단용)')
   assert.deepEqual(result.interrupted, [])
   assert.deepEqual(result.auditRegressions, [])
 

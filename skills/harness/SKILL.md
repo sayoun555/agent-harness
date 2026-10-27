@@ -108,6 +108,8 @@ test -f .harness/project.json && test -x .harness/bin/harness && echo plugged ||
    `stopReason` 이 `stuck` 이면 같은 기능이 진전 없이 같은 결과를 반복한 것이다. `stuck.reason` 을 그대로 보여 준다.
    "범위 미지정" 이면 6의 "다른 기능 때문에 멈췄을 때" 로 푼다.
    `stopReason` 이 `usage-limit` 이면 요금제 사용량이 기준(`loop.usageStopPercent`, 기본 90%)을 넘어 다음 기능을 시작하지 않은 것이다. `usage` 를 보여 주고 한도가 풀린 뒤 다시 돌리라고 알린다. 루프 중 사용량은 진행 줄에 찍힌다. 루프 밖에서는 `.harness/bin/harness usage`.
+   `agentsFallback` 이 있으면 전용 에이전트 없이 기본 에이전트로 돈 것이다(도구 제한이 빠지고 비용이 크다). `claude plugin update agent-harness@agent-harness` 뒤 Claude Code 를 다시 열라고 알린다.
+   판단 필요 질문은 `askedAt.head`(질문이 나온 커밋)와 함께 보여 준다. 보고서에 "그 뒤 커밋 N개" 가 붙은 질문은 전제가 바뀌었을 수 있다고 알린다.
    `stopReason` 이 `waiting` 이면 남은 기능이 앞 기능(`waiting[].waitingFor`)을 기다린다. 그 앞 기능의 승인 · 막힘을 먼저 풀라고 알린다.
    `report` 경로(`.harness/runs/report.md`)를 알려 준다. 기능별 문제와 해결 · 시간 · 이상 신호가 들어 있다. 루프 없이 진행했으면 `.harness/bin/harness trace report` 로 만든다.
 

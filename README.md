@@ -17,14 +17,14 @@
 | 앞 기능 | `dependsOn` 의 앞 기능이 모두 passing 이 될 때까지 `feature next` 가 그 기능을 고르지 않는다. 앞 기능이 승인 대기 · 막힘이면 변경이 보관돼 트리에 없어서, 그 위에서 구현하면 승인할 때 충돌한다. 기다리는 기능은 요약 · 보고서 · 루프 결과(`waiting`)에 나오고, 그것만 남으면 루프는 `waiting` 으로 끝난다. 없는 기능 · 자기 자신 · 순환은 등록할 때 막는다 | 대기 |
 | 원장 관리 | 원장은 훅이 직접 편집을 막는다. `feature edit`(설명 · 완료 기준 · 설계 문서 · Figma · 앞 기능) · `remove` · `move` 로 고친다. 판정을 받은 기능의 완료 기준이 바뀌면 게이트부터 다시, 통과한 기능의 설명 · 완료 기준은 바꾸지 않는다(새 기능으로). 의존받는 기능 · 진행 중인 기능은 지우지 않는다. 커밋 운용이면 루프가 끝날 때 바뀐 원장만 커밋한다(막힘 · 승인 대기로 떠난 기능의 상태를 잃지 않게) | — |
 | 소유권 | 범위(claim) 없는 기능은 같은 트리에 기록 전인 다른 기능이 있으면 게이트·검증·기록·보관을 하지 않고 멈춘다. claim(verified·reviewed 에서도) 이나 reset 으로 푼다 | 멈춤 |
-| `risk` | 위험 파일(결제·인증 등) 변경 시 자동 커밋 대신 사람 승인 | 승인 대기 |
+| `risk` | 위험 파일(결제·인증 등) 변경 시 자동 커밋 대신 사람 승인. 승인(`feature approve`)은 보관한 변경을 지금 트리에 다시 적용한 뒤 게이트를 한 번 더 돌리고, 실패하면 커밋하지 않는다 | 승인 대기 |
 | `design` | 설계 기준 · 설계 문서 양식 · 문서 검사 · 검사를 통과한 설계만 원장에 | 검사 실패면 원장에 안 들어감 |
 | `review` | 공통·스택·프로젝트 기준, 대조표 항목, footgun, 변경 diff, 게이트 경고로 독립 검증자 컨텍스트 생성 | — |
 | `feature review --verdict-json` | 검증자의 대조표를 하네스가 판정: 빠진 항목이나 위반이 있으면 반려 | 반려 |
 | `prompt` | 구현자·검증자 표준 프롬프트. 루프·스킬·사람이 같은 것을 쓴다 | — |
 | `criteria` | 검증 기준 목록, 프로젝트 기준 추가(`.harness/criteria/`) | — |
 | `baseline` | 커밋 없이 운용할 때의 비교 기준 (git 트리 객체, 커밋 아님) | — |
-| `feature drift` | 검증을 통과한 뒤 손으로 바뀐 파일 찾기 (내용 해시). 루프 시작·audit 때 그 기능을 다시 연다. 진행 중인 기능이 맡은 파일은 아직 검증 중이라 보지 않는다 | 다시 검증 |
+| `feature drift` | 검증을 통과한 뒤 손으로 바뀐 파일 찾기 (내용 해시). 루프 시작·audit 때 그 기능을 다시 연다. 진행 중인 기능이 맡은 파일은 아직 검증 중이라 보지 않는다. 모든 기능이 고치는 공용 기록 · 색인 문서(목차 · 작업 기록)는 `rules.driftIgnore` 글롭에 넣는다 — 넣지 않으면 사람이 한 줄 고칠 때마다 그 파일을 가진 통과 기능이 전부 다시 열린다 | 다시 검증 |
 | `run` | 실행 렌즈: 설치·실행·스크린샷·로그를 모아 검증자에게 (UI 전용, 꺼져 있음) | 실행 실패면 게이트 실패 |
 | `lock` | 빌드 잠금. 같은 트리에서 여러 에이전트가 빌드할 때 | — |
 | `trace` | 노드마다 한 줄 JSONL. 반복 감지·비용·부품 빼 보기 실험의 원천 | — |
@@ -59,6 +59,8 @@ curl -fsSL https://raw.githubusercontent.com/sayoun555/agent-harness/main/instal
 3. Claude Code 플러그인을 **이 프로젝트에만** 켠다. 다른 프로젝트에는 스킬도 훅도 로드되지 않는다.
 
 끝나면 `.harness/`, `.claude/settings.json`, `.gitignore` 를 커밋한다. 팀원이 clone 하면 같은 설정을 받는다.
+
+**플러그인 업데이트.** CLI(`~/.agent-harness`)와 Claude Code 가 불러온 플러그인은 따로 갱신된다. 플러그인이 낡으면 루프가 전용 에이전트를 찾지 못해 기본 에이전트로 돈다(도구 제한이 빠지고 시작 비용이 다섯 배쯤 된다). 루프 결과의 `agentsFallback` · 보고서의 이상 신호에 나오면 `claude plugin update agent-harness@agent-harness` 뒤 Claude Code 를 다시 연다.
 
 **git 에 아무것도 남기지 않으려면** `| bash -s -- --local --no-commit`.
 
@@ -235,11 +237,11 @@ GitHub 트리거는 main 에 직접 커밋하지 않고 PR 을 연다. 사람이
 
 | 상황 | 말로 | 명령으로 |
 |---|---|---|
-| 구현자가 설계 결정을 물음 | "캐싱은 Redis로 해" | `harness feature decide ID --answer 답` |
+| 구현자가 설계 결정을 물음 | "캐싱은 Redis로 해" | `harness feature decide ID --answer 답`. 질문 뒤에 커밋이 쌓였으면 사전 점검 · 보고서가 "질문은 <커밋> 시점 — 그 뒤 커밋 N개" 를 붙인다. 전제가 바뀌었는지 보고 답한다 |
 | 위험 파일이라 승인 대기 | "결제 기능 승인해 줘" | `harness feature approve ID` |
 | 같은 실패 반복·시도 한도·커밋 실패로 막힘 | 원인을 보고 "그거 다시 해 줘" | `harness feature reset ID` |
 | 통과했던 기능이 깨졌는지 | "통과한 거 아직 괜찮아?" | `harness feature audit` |
-| 검증 뒤에 손으로 고친 기능 | "검증 끝난 뒤 바뀐 거 있어?" | `harness feature drift` (`--reopen` 이면 다시 대기열로) |
+| 검증 뒤에 손으로 고친 기능 | "검증 끝난 뒤 바뀐 거 있어?" | `harness feature drift` (`--reopen` 이면 다시 대기열로). 공용 문서 때문에 통과 기능이 줄줄이 다시 열리면 그 파일을 `rules.driftIgnore` 에 넣는다 |
 | "범위 미지정" 으로 멈춤 (같은 트리에 기록 전인 다른 기능) | "하나씩 해 줘" | 커밋 없이 운용하면 멈춘 기능에 `harness feature claim ID --files a,b` (verified · reviewed 에서도 됨). 막고 있는 기능이 끊긴 것이면 `harness feature reset 그ID` (커밋 운용은 이쪽만) |
 | 루프가 `stuck` 으로 멈춤 (같은 결과가 진전 없이 두 번) | "왜 멈췄어?" | 결과의 `stuck.reason` 을 보고 위 방법으로 푼다 |
 | 루프가 명령 권한 확인에서 자꾸 멈춤 | "권한 때문에 멈춰" | 빌드 명령을 바꿨으면 `! .harness/bin/harness permissions`. 에이전트가 그때그때 치는 명령(mv · sed -i 등)은 규칙으로 미리 알 수 없어, 루프를 자동 모드(Shift+Tab)로 돌린다. 사용자 설정의 `ask` 규칙(예: `Bash(rm *)`)은 자동 모드에서도 묻는다 |
@@ -265,7 +267,7 @@ GitHub 트리거는 main 에 직접 커밋하지 않고 PR 을 연다. 사람이
 ## 테스트
 
 ```bash
-bash tests/run.sh                     # 결정론 부품(LLM 없이 같은 입력에 같은 결과) 테스트 203개, 모델 호출 없음
+bash tests/run.sh                     # 결정론 부품(LLM 없이 같은 입력에 같은 결과) 테스트 209개, 모델 호출 없음
 node tests/workflow-sim.mjs           # 루프 그래프: LLM 만 가짜, 하네스 명령은 실제 실행
 node tests/workflow-sim-parallel.mjs  # 병렬 분기: 실제 git 워크트리, 충돌 포함
 node tests/workflow-sim-ledger.mjs    # 커밋 없는 운용: 커밋 0개 저장소, 같은 트리 병렬, 커밋·ref 0개 확인

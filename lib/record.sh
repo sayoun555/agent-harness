@@ -219,6 +219,15 @@ adopt_patch_scope() {  # adopt_patch_scope <id>
   set_feature_fields "$1" "$(lines_to_json <<<"$SCOPE_FROM_PATCH" | jq -c '{scope: .}')"
 }
 
+# undo_bring_back <id> — 되가져온 변경을 트리에서 다시 뺀다(보관본은 그대로). 승인 전 게이트가 실패했을 때
+undo_bring_back() {
+  case "$(parked_kind "$1")" in
+    branch) restore_clean_tree_keeping_ledger ;;
+    patch)  git apply -R --binary "$PROJECT_ROOT/$(parked_ref "$1")" ;;
+  esac
+  set_feature_fields "$1" '{"scope":null}'
+}
+
 drop_parked() {  # drop_parked <id> — 되가져온 뒤 보관본을 지운다
   local kind ref
   kind="$(parked_kind "$1")"

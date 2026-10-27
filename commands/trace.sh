@@ -4,11 +4,11 @@
 #   harness trace show        전체
 #   harness trace tail [N]    마지막 N줄 (기본 20)
 #   harness trace summary     이벤트·결과별 개수
-#   harness trace report [--stop-reason R] [--reason 글] [--json]
+#   harness trace report [--stop-reason R] [--reason 글] [--agents-fallback 글] [--json]
 #                             사람이 읽는 보고서(state.reportFile)를 다시 만든다 — 기능별 문제와 해결, 시간 · 시도,
 #                             반복된 반려 기준, 하네스 이상 신호, 사람이 할 일. 모델을 부르지 않는다.
 #                             --stop-reason 은 루프가 끝날 때 그 이유를 trace 에 먼저 남기고,
-#                             커밋 운용이면 바뀐 원장만 커밋한다.
+#                             커밋 운용이면 바뀐 원장만 커밋한다. --agents-fallback 은 전용 에이전트 대신 기본 에이전트로 돈 이유.
 #
 set -euo pipefail
 source "$HARNESS_HOME/lib/common.sh"
@@ -35,22 +35,24 @@ commit_ledger_at_loop_end() {  # commit_ledger_at_loop_end <stop-reason> → 커
 }
 
 cmd_report() {
-  local stop_reason="" reason="" json_mode=0 out ledger committed=""
+  local stop_reason="" reason="" agents_fallback="" json_mode=0 out ledger committed=""
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --stop-reason) stop_reason="${2:?--stop-reason 에 값}"; shift 2 ;;
       --reason)      reason="${2:-}"; shift 2 ;;
+      --agents-fallback) agents_fallback="${2:-}"; shift 2 ;;
       --json)        json_mode=1; shift ;;
-      *) die "$EXIT_USAGE" "사용: harness trace report [--stop-reason R] [--reason 글] [--json]" ;;
+      *) die "$EXIT_USAGE" "사용: harness trace report [--stop-reason R] [--reason 글] [--agents-fallback 글] [--json]" ;;
     esac
   done
+  [[ -n "$agents_fallback" ]] && trace_add agents-fallback "$(jq -cn --arg why "$agents_fallback" '{reason: $why}')"
   [[ -n "$stop_reason" ]] && trace_add loop-end "$(jq -cn --arg r "$stop_reason" --arg why "$reason" '{result: $r, reason: $why}')"
   out="$(report_file)"
   mkdir -p "$(dirname "$out")"
   ledger="$(features_file)"
   [[ -f "$ledger" ]] || ledger=/dev/null
   touch "$FILE"
-  build_report "$FILE" "$ledger" "$(utc_now)" > "$out"
+  build_report "$FILE" "$ledger" "$(utc_now)" "$(stale_questions_json)" > "$out"
   [[ -n "$stop_reason" ]] && committed="$(commit_ledger_at_loop_end "$stop_reason")"
   if [[ "$json_mode" -eq 1 ]]; then
     jq -cn --arg path "${out#"$PROJECT_ROOT"/}" --arg c "$committed" '{result: "ok", path: $path, ledgerCommit: (if $c == "" then null else $c end)}'

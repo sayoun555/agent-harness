@@ -14,7 +14,9 @@ cmd_ask() {
   require_features_file; require_feature "$id"
   require_status "$id" "$STATUS_PENDING"
   require_sole_owner "$id"
-  set_feature_fields "$id" "$(jq -cn --arg q "$question" '{status: "needs-decision", question: $q}')"
+  # 질문은 물을 때의 상황을 전제로 한다. 그 시점을 남겨, 그 뒤 커밋이 쌓였으면 낡았을 수 있다고 알린다(현장 보고 H11)
+  set_feature_fields "$id" "$(jq -cn --arg q "$question" --arg at "$(utc_now)" --arg head "$(current_head)" \
+    '{status: "needs-decision", question: $q, askedAt: {at: $at, head: $head}}')"
   set_aside_changes "$id" "needs-decision"
   trace_add ask "$(jq -cn --arg id "$id" --arg q "$question" '{feature: $id, result: "needs-decision", question: $q}')"
   emit "$(json_mode_of "$@")" "$(result_json "$id" needs-decision "$question")" "❓ ask $id → needs-decision: $question"
@@ -30,7 +32,7 @@ cmd_decide() {
   question="$(feature_field "$id" question)"
   prior="$(jq -c --arg id "$id" '.features[] | select(.id == $id) | .decisions // []' "$(features_file)")"
   set_feature_fields "$id" "$(jq -cn --argjson prior "$prior" --arg q "$question" --arg a "$answer" \
-    '{status: "pending", question: null, decisions: ($prior + [{question: $q, answer: $a}])}')"
+    '{status: "pending", question: null, askedAt: null, decisions: ($prior + [{question: $q, answer: $a}])}')"
   trace_add decide "$(jq -cn --arg id "$id" --arg a "$answer" '{feature: $id, answer: $a}')"
   echo "✅ decide $id → pending (결정이 다음 구현에 전달된다)"
 }

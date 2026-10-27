@@ -411,6 +411,62 @@ test_loop_end_commits_only_the_ledger() {
   assert_eq "$(h trace report --json | jq -r .ledgerCommit)" "null"
 }
 
+# ── 승인 전 게이트 (현장 보고 H9) ─────────────────────────────────────
+test_approve_runs_gates_before_committing() {
+  add_feature pay "결제" 'grep -q "ok" src/payment.js'
+  echo 'export const pay = () => "ok";' > src/payment.js
+  verify_and_review pay; h feature record pay >/dev/null 2>&1
+  assert_eq "$(status_of pay)" "awaiting-approval"
+  local before
+  echo 'test ! -e src/payment.js' > guard.sh   # 승인 시점의 컴파일이 결제 코드를 거부한다고 치자
+  jq '.build.compileCommand = "bash guard.sh"' .harness/project.json > p.tmp && mv p.tmp .harness/project.json
+  git add -A && git commit -qm "컴파일 조건"
+  before="$(git rev-parse HEAD)"
+  assert_contains "$(h feature approve pay 2>&1)" "승인 전 게이트 실패(컴파일)"
+  assert_eq "$(git rev-parse HEAD)" "$before" "(커밋하지 않는다)"
+  assert_eq "$(status_of pay)" "awaiting-approval"
+  assert_eq "$(git status --porcelain)" "" "(되가져온 변경을 다시 뺀다)"
+  assert_eq "$(parked_ref_of pay)" "harness/pay"
+  jq '.build.compileCommand = ""' .harness/project.json > p.tmp && mv p.tmp .harness/project.json && git commit -qam "되돌림"
+  assert_exit 0 h feature approve pay
+  assert_eq "$(status_of pay)" "passing"
+}
+
+test_approve_gate_failure_restores_tree_without_commits() {
+  use_ledger_mode
+  add_feature pay "결제" 'grep -q "ok" src/payment.js'
+  h feature preflight >/dev/null 2>&1
+  echo 'export const pay = () => "ok";' > src/payment.js
+  verify_and_review pay; h feature record pay >/dev/null 2>&1
+  assert_eq "$(status_of pay)" "awaiting-approval"
+  jq '.build.compileCommand = "test ! -e src/payment.js"' .harness/project.json > p.tmp && mv p.tmp .harness/project.json
+  assert_exit 1 h feature approve pay
+  assert_eq "$(test -e src/payment.js && echo applied || echo clean)" "clean" "(패치를 되돌린다)"
+  assert_eq "$(status_of pay)" "awaiting-approval"
+}
+
+# ── 낡은 질문 (현장 보고 H11) ─────────────────────────────────────────
+test_question_shows_commits_since_it_was_asked() {
+  add_feature cache "캐시" 'true'
+  h feature ask cache --question "02 · 03 이 승인 대기인데 먼저 할까?" >/dev/null
+  assert_eq "$(field_of cache askedAt | jq -r .head)" "$(git rev-parse --short HEAD)"
+  assert_not_contains "$(h feature preflight 2>&1)" "질문은"
+  git commit -qam "원장만" 2>/dev/null || true
+  echo '// 다른 기능' >> src/math.js && git commit -qam "02 승인"
+  assert_contains "$(h feature preflight --json | jq -r '.notes | join(" ")')" "판단 대기 cache 의 질문 (질문은"
+  assert_contains "$(h feature preflight --json | jq -r '.notes | join(" ")')" "그 뒤 커밋 1개"
+  h trace report >/dev/null 2>&1
+  assert_contains "$(cat .harness/runs/report.md)" "그 뒤 커밋 1개"
+  h feature decide cache --answer "먼저 한다" >/dev/null
+  assert_eq "$(field_of cache askedAt)" "null"
+}
+
+test_report_flags_agent_fallback() {
+  h trace report --stop-reason all-done --agents-fallback "agent-harness:harness-runner: agent type not found" >/dev/null 2>&1
+  assert_contains "$(cat .harness/runs/report.md)" "전용 에이전트를 띄우지 못해 기본 에이전트로 돌았다"
+  assert_contains "$(cat .harness/runs/report.md)" "claude plugin update agent-harness@agent-harness"
+}
+
 test_loop_end_does_not_commit_without_auto_commit() {
   jq '.loop.autoCommit = false' .harness/project.json > p.tmp && mv p.tmp .harness/project.json && git commit -qam "커밋 없이"
   add_feature a "에이" 'true'
@@ -1493,6 +1549,32 @@ test_drift_catches_edit_after_verification() {
   assert_eq "$(field_of sub lastFailure)" "검증 후 변경됨: src/math.js"
 }
 
+test_drift_skips_shared_record_files() {
+  add_feature sub "빼기" 'grep -q "const sub" src/math.js'
+  jq '.rules.driftIgnore = ["docs/*"]' .harness/project.json > p.tmp && mv p.tmp .harness/project.json && git commit -qam "공용 문서는 감시하지 않는다"
+  echo 'export const sub = (a, b) => a - b;' >> src/math.js
+  mkdir -p docs/refactoring && echo '- sub 완료' > docs/refactoring/README.md
+  pass_feature sub
+  assert_eq "$(status_of sub)" "passing"
+  assert_eq "$(jq -r '.features[0].verifiedFiles | keys | join(",")' .harness/features.json)" "src/math.js" "(공용 문서는 검증 파일로 남기지 않는다)"
+  assert_contains "$(git show --name-only --format= HEAD)" "docs/refactoring/README.md" "(기능 커밋에는 담긴다)"
+  echo '- 목차 정리' >> docs/refactoring/README.md && git commit -qam "사람이 목차를 고침"
+  assert_contains "$(h feature drift)" "검증 후 바뀐 기능 없음"
+  echo '// 손으로 고친 코드' >> src/math.js
+  assert_contains "$(h feature drift)" "- sub: src/math.js" "(코드는 그대로 감시한다)"
+}
+
+test_drift_ignore_also_covers_hashes_recorded_before_the_setting() {
+  add_feature sub "빼기" 'grep -q "const sub" src/math.js'
+  echo 'export const sub = (a, b) => a - b;' >> src/math.js
+  mkdir -p docs && echo '- sub' > docs/index.md
+  pass_feature sub
+  echo '- 정리' >> docs/index.md && git commit -qam "목차"
+  assert_contains "$(h feature drift)" "- sub: docs/index.md"
+  jq '.rules.driftIgnore = ["docs/index.md"]' .harness/project.json > p.tmp && mv p.tmp .harness/project.json
+  assert_contains "$(h feature drift)" "검증 후 바뀐 기능 없음" "(설정을 나중에 더해도 다시 열지 않는다)"
+}
+
 test_drift_ignores_changes_verified_by_a_later_feature() {
   use_ledger_mode
   add_feature sub "빼기" 'grep -q "const sub" src/math.js'
@@ -2103,6 +2185,8 @@ test_implement_prompt_tells_how_to_format() {
   set_build '{"formatCommand": "fmt --write", "formatCheckCommand": "fmt --check"}'
   assert_contains "$(h prompt implement sub)" '끝내기 전에 `fmt --write` 로 포맷을 맞춘다'
   assert_contains "$(h prompt implement sub --mode shared)" "포매터는 다른 기능의 파일까지 바꾸니 돌리지 않는다"
+  assert_contains "$(h prompt implement sub --mode isolated)" "포매터가 이 워크트리에서 실패하면"
+  assert_not_contains "$(h prompt implement sub)" "워크트리에서 실패하면" "(워크트리가 아니면 붙이지 않는다)"
   set_build '{"formatCommand": ""}'
   assert_contains "$(h prompt implement sub)" '끝내기 전에 `fmt --check` 가 통과하는지 확인한다'
 }

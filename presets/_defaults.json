@@ -26,6 +26,8 @@
     "formatCheckCommand": ""
   },
   "rules": {
+    "_driftIgnoreAbout": "검증 후 변경 감지(drift)에서 빼는 파일 글롭. 모든 기능이 고치는 공용 기록 · 색인 문서(목차 · 작업 기록)를 넣는다 — 사람이 한 줄 고칠 때마다 그 파일을 가진 통과 기능이 전부 다시 열리지 않게. 코드는 넣지 않는다(사람이 고친 코드를 다시 검증하는 것이 drift 의 목적). * 는 / 도 넘는다.",
+    "driftIgnore": [],
     "maxFileLines": 400,
     "stubMarkerPattern": "(//|#|/\\*|\\*)[[:space:]]*(TODO|FIXME|XXX|HACK|stub|STUB|placeholder|미구현)|(^|[^A-Za-z0-9_.])TODO\\(|NotImplementedError|[Nn]ot[ _-]?[Ii]mplemented|unimplemented!\\(|todo!\\(",
     "secretPattern": "(password|passwd|secret|api[_]?key|access[_]?key|private[_]?key|client[_]?secret|token)[[:space:]]*[:=][[:space:]]*[\"'][^\"']{8,}[\"']",

@@ -39,7 +39,7 @@ const BUDGET_FLOOR = 50000
 
 // 원장은 필요한 필드만 읽는다. 전체에는 실패 출력 · 대조표가 실려 커지고, 명령 실행 에이전트가 옮기는 동안 걸러질 수 있다.
 const SELECT_FIELDS = 'id,attempts,figma'                 // 선택: 태그 · 시도 횟수 · 구현자 종류
-const SUMMARY_FIELDS = 'id,status,lastFailure,question,dependsOn'   // 끝 요약 (dependsOn: 앞 기능을 기다리는 기능)
+const SUMMARY_FIELDS = 'id,status,lastFailure,question,askedAt,dependsOn'   // 끝 요약 (dependsOn: 앞 기능을 기다리는 기능)
 
 // ── 스키마 ─────────────────────────────────────────────────────────
 const COMMAND_RESULT = {
@@ -110,6 +110,7 @@ let AGENTS = (args && args.agents) || {}
 // 하네스 CLI 는 프로젝트 설정만 보고 이름을 준다. 이 세션에 플러그인이 없으면(다른 저장소에서 연 세션 등)
 // 그 정의를 띄우지 못한다. 그때는 기본 에이전트로 다시 띄우고, 이번 실행 동안 전용 정의를 쓰지 않는다.
 let agentsUnavailable = false
+let agentsFallback = ''   // 전용 에이전트를 띄우지 못한 이유 — 결과와 보고서에 남긴다(현장 보고 H13: 설치된 플러그인이 낡으면 매번 이렇게 돈다)
 async function spawn(prompt, opts, role) {
   const agentType = role && !agentsUnavailable ? AGENTS[role] : undefined
   if (!agentType) return agent(prompt, opts)
@@ -118,6 +119,7 @@ async function spawn(prompt, opts, role) {
   } catch (error) {
     log(`전용 에이전트 ${agentType} 를 띄우지 못했다 — 기본 에이전트로 바꾼다 (${(error && error.message) || error})`)
     agentsUnavailable = true
+    agentsFallback = `${agentType}: ${(error && error.message) || error}`
     return agent(prompt, opts)
   }
 }
@@ -387,7 +389,7 @@ if (stopReason === 'all-done' && waiting.length > 0) {
 // 사람이 읽는 보고서(기능별 문제와 해결 · 시간 · 이상 신호). 하네스가 trace 로 만든다 — 모델은 명령 하나만 실행한다.
 const stopWhy = stuck ? `${stuck.feature}: ${stuck.node} → ${stuck.result} ${stuck.reason || ''}`
   : stopReason === 'usage-limit' ? `${usage.summary} (기준 ${usage.stopPercent}%)` : ''
-const stopNote = stopWhy ? ` --reason ${shellQuote(stopWhy)}` : ''
+const stopNote = (stopWhy ? ` --reason ${shellQuote(stopWhy)}` : '') + (agentsFallback ? ` --agents-fallback ${shellQuote(agentsFallback)}` : '')
 const report = await runHarness(`trace report --stop-reason ${stopReason}${stopNote} --json`, '보고서')
 const byStatus = (status) => features
   .filter((f) => f.status === status)
@@ -398,10 +400,11 @@ return {
   usage: usage ? usage.summary : null,                // 마지막으로 읽은 요금제 사용량 (usage-limit 이면 한도가 풀린 뒤 다시)
   stuck: stuck ? { feature: stuck.feature, node: stuck.node, result: stuck.result, reason: stuck.reason } : null,  // 사람: 이유를 보고 claim · reset 등으로 푼다
   autoCommit: AUTO_COMMIT,
+  agentsFallback: agentsFallback || null,             // 사람: 전용 에이전트 없이 돌았다 — 플러그인을 업데이트 · 재설치한다
   iterations: steps.length,
   passing: byStatus('passing').map((f) => f.id),
   needsDecision: features                             // 사람: harness feature decide ID --answer 답
-    .filter((f) => f.status === 'needs-decision').map((f) => ({ id: f.id, question: f.question })),
+    .filter((f) => f.status === 'needs-decision').map((f) => ({ id: f.id, question: f.question, askedAt: f.askedAt || null })),  // askedAt.head: 질문이 나온 커밋
   awaitingApproval: byStatus('awaiting-approval'),    // 사람: harness feature approve ID
   blocked: byStatus('blocked'),                       // 사람: 원인 해결 후 harness feature reset ID
   interrupted: [...byStatus('verified'), ...byStatus('reviewed')].map((f) => f.id),  // 판정 뒤 기록 전에 끊긴 기능

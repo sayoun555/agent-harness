@@ -73,6 +73,8 @@ async function runRecovery() {
     const nodes = result.steps.map((s) => `${s.feature}:${s.node}:${s.result}`)
     assert.deepEqual(nodes, ['a:record:passing', 'r:record:passing'])
     assert.deepEqual(typedCalls, [agents.runner], '전용 정의는 한 번 실패한 뒤 다시 쓰지 않는다')
+    assert.match(result.agentsFallback, /agent-harness:harness-runner: Agent type .* not found/, '기본 에이전트로 돈 이유가 결과에 남는다')
+    assert.match(readFileSync(join(project, result.report), 'utf8'), /전용 에이전트를 띄우지 못해 기본 에이전트로 돌았다/, '보고서의 이상 신호에도')
     assert.ok(labels.includes('범위:a#1') && labels.includes('범위:r#1'), '순차에서도 바꾼 파일을 범위로 적는다')
     assert.ok(labels.includes('원장:r'), '응답을 잃으면 원장을 다시 읽는다')
     assert.deepEqual(ledgerOf(project).map((f) => f.status), ['passing', 'passing'])

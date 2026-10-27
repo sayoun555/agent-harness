@@ -54,6 +54,13 @@ cmd_approve() {
   bring_back_changes "$id" \
     || die "$EXIT_GATE_FAILED" "보관한 변경($(parked_ref "$id"))을 지금 트리에 적용하다 충돌했다. 직접 병합하거나 reset 후 다시 구현한다."$'\n'"$BRING_BACK_ERROR"
   adopt_patch_scope "$id"
+  # 보관한 변경은 그 뒤에 쌓인 커밋 위로 다시 적용된 것이다(사람이 충돌을 풀었을 수도 있다). 게이트 없이 커밋하지 않는다(현장 보고 H9).
+  if ! run_gates "$id"; then
+    undo_bring_back "$id"
+    trace_add approve "$(jq -cn --arg id "$id" --arg step "$FAILED_STEP" --arg detail "${FAILED_DETAIL:0:300}" \
+      '{feature: $id, result: "gate-failed", step: $step, detail: $detail}')"
+    die "$EXIT_GATE_FAILED" "승인 전 게이트 실패($FAILED_STEP) — 커밋하지 않았다. awaiting-approval 유지, 변경은 $(parked_ref "$id") 에 그대로 있다"$'\n'"$FAILED_DETAIL"
+  fi
   if ! record_passing "$id" " (사람 승인)" "$STATUS_AWAITING"; then
     restore_clean_tree_keeping_ledger
     die "$EXIT_GATE_FAILED" "git 커밋 실패 — awaiting-approval 유지, 변경은 $(parked_ref "$id") 에 그대로 있다"$'\n'"$RECORD_ERROR"

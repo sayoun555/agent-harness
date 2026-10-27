@@ -132,19 +132,39 @@ record_failure() {
   printf '%s\n' "$status"
 }
 
+current_head() { git -C "$PROJECT_ROOT" rev-parse --short HEAD 2>/dev/null || true; }
+
+# 판단 대기 질문이 나온 뒤 쌓인 커밋 수 {ID: N} (N > 0 만). 원장만 바꾼 커밋은 세지 않는다 — 루프 끝 원장 커밋은 상황 변화가 아니다
+stale_questions_json() {
+  local ledger id head n out='{}'
+  [[ -f "$(features_file)" ]] || { echo '{}'; return 0; }
+  ledger="$(cfg '.state.featuresFile')"
+  while IFS=$'\t' read -r id head; do
+    [[ -n "$id" && -n "$head" ]] || continue
+    n="$(git -C "$PROJECT_ROOT" rev-list --count "$head..HEAD" -- . ":(exclude)$ledger" 2>/dev/null || echo 0)"
+    [[ "$n" =~ ^[1-9][0-9]*$ ]] && out="$(jq -c --arg id "$id" --argjson n "$n" '. + {($id): $n}' <<<"$out")"
+  done < <(jq -r '.features[] | select(.status == "needs-decision" and (.askedAt.head // "") != "") | "\(.id)\t\(.askedAt.head)"' "$(features_file)")
+  printf '%s\n' "$out"
+}
+
+# 낡았을 수 있는 질문에 붙이는 꼬리 (jq 정의, $stale = stale_questions_json)
+readonly JQ_QUESTION_AGE='def question_age($stale):
+  if ($stale[.id] // 0) > 0
+  then " (질문은 \(.askedAt.head) 시점 — 그 뒤 커밋 \($stale[.id])개. 전제가 지금도 맞는지 확인하고 답한다)" else "" end;'
+
 # 세션 시작 주입용 한 단락 요약 (원장이 없으면 빈 출력)
 features_summary() {
   local file
   file="$(features_file)"
   [[ -f "$file" ]] || return 0
-  jq -r "$JQ_READY"'
+  jq -r --argjson stale "$(stale_questions_json)" "$JQ_READY$JQ_QUESTION_AGE"'
     .features as $all |
     def ids(s): [.features[] | select(.status == s) | .id] | join(", ");
     "기능 원장: 전체 \(.features | length) · 통과 \([.features[] | select(.status == "passing")] | length)"
     + " · 남음 \([.features[] | select(.status == "pending" or .status == "verified" or .status == "reviewed")] | length)"
     + (if ids("blocked") != "" then "\n  막힘(사람 확인 필요): " + ids("blocked") else "" end)
     + (if ids("awaiting-approval") != "" then "\n  승인 대기: " + ids("awaiting-approval") else "" end)
-    + ([.features[] | select(.status == "needs-decision") | "\n  판단 필요: \(.id) — \(.question)"] | join(""))
+    + ([.features[] | select(.status == "needs-decision") | "\n  판단 필요: \(.id) — \(.question)\(question_age($stale))"] | join(""))
     + ([.features[] | select(.status == "pending" and (ready($all) | not)) | "\n  대기(앞 기능): \(.id) ← \(waiting_for($all) | join(", "))"] | join(""))
     + (([.features[] | select(ready($all))][0]) as $n
        | if $n then "\n  다음: \($n.id) — \($n.description)" else "" end)

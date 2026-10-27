@@ -148,6 +148,18 @@ check_format_ready() {
   PREFLIGHT_PROBLEMS+=("포맷 검사가 루프 전부터 실패한다($check) — 포매터($(cfg '.build.formatCommand'))를 한 번 돌려 반영하거나 build.formatCheckCommand 를 비운다"$'\n'"$STEP_OUTPUT")
 }
 
+# 판단 대기 질문이 나온 뒤 커밋이 쌓였으면 알린다 — 사람이 낡은 전제로 답하지 않게(현장 보고 H11)
+note_stale_questions() {
+  [[ -f "$(features_file)" ]] || return 0
+  local line
+  while IFS= read -r line; do
+    [[ -n "$line" ]] && PREFLIGHT_NOTES+=("$line")
+  done < <(jq -r --argjson stale "$(stale_questions_json)" "$JQ_QUESTION_AGE"'
+    .features[] | select(.status == "needs-decision") | question_age($stale) as $age | select($age != "")
+    | "판단 대기 \(.id) 의 질문\($age)"' "$(features_file)")
+  return 0
+}
+
 cmd_preflight() {
   PREFLIGHT_PROBLEMS=()
   PREFLIGHT_NOTES=()
@@ -155,6 +167,7 @@ cmd_preflight() {
   reopen_drifted_for_loop
   check_working_tree_ready
   check_format_ready
+  note_stale_questions
   local figma_notice
   figma_notice="$(figma_mcp_notice)"
   [[ -n "$figma_notice" ]] && PREFLIGHT_NOTES+=("$figma_notice")

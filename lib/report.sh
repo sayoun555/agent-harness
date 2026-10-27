@@ -33,8 +33,10 @@ def describe:
 '
 
 # build_report <trace.jsonl> <features.json> <생성 시각> → Markdown
-build_report() {
-  jq -rn --slurpfile ledger "$2" --arg now "$3" "$JQ_REPORT_DEFS"'
+build_report() {  # build_report <trace> <원장> <지금> [낡은 질문 JSON]
+  local stale="${4:-}"
+  [[ -n "$stale" ]] || stale='{}'
+  jq -rn --slurpfile ledger "$2" --arg now "$3" --argjson stale "$stale" "$JQ_REPORT_DEFS$JQ_QUESTION_AGE"'
     [inputs] as $t
     | ($ledger[0].features // []) as $f
     | ($f | map({key: .id, value: .}) | from_entries) as $byId
@@ -93,13 +95,14 @@ build_report() {
         "",
         ( [ ($t[] | select(.event == "loop-end" and (.result == "stuck" or .result == "ledger-unreadable" or .result == "budget" or .result == "usage-limit"))
               | "- \(.ts) 루프가 멈춤(\(.result))" + (if (.reason // "") != "" then ": \(.reason | cell)" else "" end)),
+            ($t[] | select(.event == "agents-fallback") | "- \(.ts) 전용 에이전트를 띄우지 못해 기본 에이전트로 돌았다(도구 제한이 빠진다): \(.reason | cell) → 플러그인 업데이트 · 재설치 `claude plugin update agent-harness@agent-harness`"),
             ($t[] | select(.event == "preflight" and .result == "released-stale") | "- \(.ts) 끊긴 실행이 남긴 진행 중 표시를 풀었다: \(.features)"),
             ($t[] | select(.event == "loop-run" and .exitCode != 0) | "- \(.ts) 헤드리스 루프가 종료 코드 \(.exitCode) 로 끝남 (\(.log))") ]
           | if length == 0 then "없음." else .[] end ),
         "",
         "## 사람이 할 일",
         "",
-        ( [ ($f[] | select(.status == "needs-decision") | "- 판단: \(.id) — \(.question // "" | cell) → `harness feature decide \(.id) --answer …`"),
+        ( [ ($f[] | select(.status == "needs-decision") | "- 판단: \(.id) — \(.question // "" | cell)\(question_age($stale)) → `harness feature decide \(.id) --answer …`"),
             ($f[] | select(.status == "awaiting-approval") | "- 승인: \(.id) → `harness feature approve \(.id)`"),
             ($f[] | select(.status == "blocked") | "- 막힘: \(.id) — \(.lastFailure // "" | cell) → 원인을 푼 뒤 `harness feature reset \(.id)`"),
             ($f as $all | $f[] | select(.status == "pending")
