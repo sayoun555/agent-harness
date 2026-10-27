@@ -154,6 +154,7 @@ test -f .harness/project.json && test -x .harness/bin/harness && echo plugged ||
 ## 2C. 반복되는 반려를 기준으로 쌓는다
 
 같은 종류의 반려가 두 번 이상 나오면, 다음 구현에서 미리 피하도록 프로젝트 기준에 붙인다. 이후 모든 구현 프롬프트와 검증 대조표에 자동으로 들어간다.
+`trace report` 의 "제안" 칸이 반복된 기준마다 지적 원문과 `criteria add --from <ID>` 초안을 준다. `--rule` 은 지적에서 반복된 구체 패턴으로 채운다.
 ```bash
 .harness/bin/harness criteria add --title '같은 정보를 두 번 담지 않는다' --rule '한 값은 한 필드에만 둔다' \
   --when '상태·설정 값을 새로 둘 때' --check '같은 의미의 필드가 둘이면 지적'

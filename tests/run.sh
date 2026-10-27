@@ -614,6 +614,41 @@ test_trace_report_documents_problems_and_fixes() {
   assert_eq "$(jq -r 'select(.event == "loop-end") | .result' .harness/trace.jsonl)" "stuck"
 }
 
+test_report_suggests_project_criterion_for_repeated_rejects() {
+  local report=.harness/runs/report.md f
+  for f in sub mul div pow; do
+    add_feature "$f" "$f" 'true'
+  done
+  reject_with() { h feature verify "$1" >/dev/null 2>&1; h feature reject "$1" --reason "$2" >/dev/null 2>&1; }
+  reject_with sub "Q2 src/math.js:1 — 전이가 if 사슬로 흩어짐"
+  reject_with mul "Q2 src/math.js:2 — 상태 플래그 두 개로 흉내"
+  h trace report >/dev/null 2>&1
+  assert_contains "$(cat $report)" "### 제안 — 프로젝트 기준으로 쌓기"
+  assert_contains "$(cat $report)" "반려 2번 · 기능 mul, sub"
+  assert_contains "$(cat $report)" "  - mul: Q2 src/math.js:2 — 상태 플래그 두 개로 흉내"
+  assert_contains "$(cat $report)" "harness criteria add --from Q2 --title '"
+
+  assert_exit 2 h criteria add --from Z9 --title "없는 기준" --rule "규칙"
+  h criteria add --from Q2 --title "상태 전이는 enum 하나로" --rule "전이를 if 사슬 · 플래그로 흉내 내지 않는다" >/dev/null
+  assert_contains "$(cat .harness/criteria/project.md)" "Q2 반려가 반복됐다"
+  h trace report >/dev/null 2>&1
+  assert_contains "$(cat $report)" "| Q2 | 2 | mul, sub |" "(표는 이력을 그대로 보인다)"
+  assert_contains "$(cat $report)" "없음 — 반복된 기준은 모두 프로젝트 기준으로 쌓았다."
+
+  reject_with div "Q2 src/math.js:3 — 또 if 사슬"
+  h trace report >/dev/null 2>&1
+  assert_contains "$(cat $report)" "없음 — 반복된 기준은" "(쌓은 뒤 한 기능만으로는 다시 제안하지 않는다)"
+  reject_with pow "Q2 src/math.js:4 — 또 플래그"
+  h trace report >/dev/null 2>&1
+  assert_contains "$(cat $report)" "반려 2번 · 기능 div, pow" "(쌓은 뒤에도 반복되면 그 뒤 반려만으로 다시 제안)"
+
+  reject_with div "P1 src/math.js:3 — enum 을 안 씀"
+  reject_with pow "P1 src/math.js:4 — enum 을 안 씀"
+  h trace report >/dev/null 2>&1
+  cp $report /private/tmp/claude-501/-Users-sanghyunyoun-han/4493d7ea-0580-4a1c-88c2-5043a8d7169e/scratchpad/r.md; cp .harness/trace.jsonl /private/tmp/claude-501/-Users-sanghyunyoun-han/4493d7ea-0580-4a1c-88c2-5043a8d7169e/scratchpad/t.jsonl
+  assert_contains "$(cat $report)" "이미 프로젝트 기준이다. \`.harness/criteria/\` 의 P1 규칙을"
+}
+
 # ── init: 프로젝트 단위 플러그인 활성화 ─────────────────────────────
 test_init_enables_plugin_only_for_this_project() {
   local settings=.claude/settings.json

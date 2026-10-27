@@ -14,6 +14,8 @@ set -euo pipefail
 source "$HARNESS_HOME/lib/common.sh"
 source "$HARNESS_HOME/lib/trace.sh"
 source "$HARNESS_HOME/lib/features.sh"
+source "$HARNESS_HOME/lib/cli.sh"
+source "$HARNESS_HOME/lib/criteria.sh"
 source "$HARNESS_HOME/lib/report.sh"
 require_commands jq
 project_is_plugged_in || die "$EXIT_CONFIG" "이 프로젝트에 하네스가 없다 (harness init)"
@@ -52,7 +54,7 @@ cmd_report() {
   ledger="$(features_file)"
   [[ -f "$ledger" ]] || ledger=/dev/null
   touch "$FILE"
-  build_report "$FILE" "$ledger" "$(utc_now)" "$(stale_questions_json)" > "$out"
+  build_report "$FILE" "$ledger" "$(utc_now)" "$(stale_questions_json)" "$(criteria_catalog_json)" > "$out"
   [[ -n "$stop_reason" ]] && committed="$(commit_ledger_at_loop_end "$stop_reason")"
   if [[ "$json_mode" -eq 1 ]]; then
     jq -cn --arg path "${out#"$PROJECT_ROOT"/}" --arg c "$committed" '{result: "ok", path: $path, ledgerCommit: (if $c == "" then null else $c end)}'

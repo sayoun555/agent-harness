@@ -65,6 +65,14 @@ criterion_index() {  # criterion_index < 파일 목록
 
 review_criterion_index() { review_criteria_files | criterion_index; }
 
+# 검증 기준 ID → {title, project} (보고서의 기준 제안용 — project 면 새로 쌓지 않고 고치라고 한다)
+criteria_catalog_json() {
+  local project
+  project="$(project_criteria_files | criterion_index | cut -f1 | lines_to_json)"
+  review_criterion_index | jq -Rn --argjson project "$project" \
+    '[inputs | split("\t") | {key: .[0], value: {title: .[1], project: (.[0] as $i | $project | any(.[]; . == $i))}}] | from_entries'
+}
+
 # ── 기준 버전 ───────────────────────────────────────────────────────
 # 검증 기준 파일들의 내용 해시. 구현 시점과 검증 시점의 기준이 같은지 비교한다.
 criteria_version() { review_criteria_files | while IFS= read -r f; do cat "$f"; done | "$SHA1_COMMAND" | cut -c1-12; }

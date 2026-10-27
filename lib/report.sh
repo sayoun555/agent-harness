@@ -33,10 +33,11 @@ def describe:
 '
 
 # build_report <trace.jsonl> <features.json> <생성 시각> → Markdown
-build_report() {  # build_report <trace> <원장> <지금> [낡은 질문 JSON]
-  local stale="${4:-}"
+build_report() {  # build_report <trace> <원장> <지금> [낡은 질문 JSON] [기준 목록 JSON]
+  local stale="${4:-}" catalog="${5:-}"
   [[ -n "$stale" ]] || stale='{}'
-  jq -rn --slurpfile ledger "$2" --arg now "$3" --argjson stale "$stale" "$JQ_REPORT_DEFS$JQ_QUESTION_AGE"'
+  [[ -n "$catalog" ]] || catalog='{}'
+  jq -rn --slurpfile ledger "$2" --arg now "$3" --argjson stale "$stale" --argjson catalog "$catalog" "$JQ_REPORT_DEFS$JQ_QUESTION_AGE"'
     [inputs] as $t
     | ($ledger[0].features // []) as $f
     | ($f | map({key: .id, value: .}) | from_entries) as $byId
@@ -83,12 +84,29 @@ build_report() {  # build_report <trace> <원장> <지금> [낡은 질문 JSON]
         "",
         "품질 기준 ID(Q2 · P1 …)만 센다. REQ(요구) · REG(회귀)는 기능마다 다른 내용이라 반복으로 보지 않는다.",
         "",
-        ( [$ft[] | select(.event == "review" and .result == "reject")
-            | {feature, id: ((.reason // "") | capture("^(?<id>[A-Z]+[0-9]+)").id // empty)}]
-          | group_by(.id) | map({id: .[0].id, features: (map(.feature) | unique)}) | map(select(.features | length >= 2))
-          | if length == 0 then "없음."
+        ( [$t | to_entries[] | .key as $at | .value | select(.feature != null and .event == "review" and .result == "reject")
+            | {at: $at, feature, reason: (.reason // ""), id: ((.reason // "") | capture("^(?<id>[A-Z]+[0-9]+)").id // empty)}] as $rej
+          | ($rej | group_by(.id) | map({id: .[0].id, features: (map(.feature) | unique)}) | map(select(.features | length >= 2))) as $rep
+          | if ($rep | length) == 0 then "없음."
             else ("| 기준 | 기능 수 | 기능 |", "|---|---|---|",
-                  (.[] | "| \(.id) | \(.features | length) | \(.features | join(", ")) |"))
+                  ($rep[] | "| \(.id) | \(.features | length) | \(.features | join(", ")) |"),
+                  "",
+                  "### 제안 — 프로젝트 기준으로 쌓기",
+                  "",
+                  "구현자가 일반 기준을 이 프로젝트 코드에 맞게 읽지 못해 같은 반려가 반복된 것이다. 지적에서 반복된 구체 패턴을 규칙으로 적어 쌓으면 다음 구현 프롬프트와 대조표에 들어간다. `--from` 으로 쌓은 뒤에는 그 뒤 반려가 다시 반복될 때만 여기 나온다.",
+                  "",
+                  ( [ $rep[] | .id as $id
+                      | ([$t | to_entries[] | select(.value.event == "criteria-add" and .value.from == $id) | .key] | max // -1) as $since
+                      | [$rej[] | select(.id == $id and .at > $since)] as $fresh
+                      | ($fresh | map(.feature) | unique) as $fs
+                      | select(($fs | length) >= 2)
+                      | ($catalog[$id] // {}) as $c
+                      | "- **\($id)** \($c.title // "") — 반려 \($fresh | length)번 · 기능 \($fs | join(", "))",
+                        ($fresh[-3:][] | "  - \(.feature): \(.reason | cell)"),
+                        (if $c.project == true
+                         then "  - → 이미 프로젝트 기준이다. `.harness/criteria/` 의 \($id) 규칙을 위 지적처럼 더 구체적으로 고친다"
+                         else "  - → `harness criteria add --from \($id) --title \((($c.title // $id) + " — 이 프로젝트") | @sh) --rule \("<위 지적에서 반복된 구체 패턴>" | @sh)`" end) ]
+                    | if length == 0 then "없음 — 반복된 기준은 모두 프로젝트 기준으로 쌓았다." else .[] end ))
             end ),
         "",
         "## 하네스 이상 신호",
